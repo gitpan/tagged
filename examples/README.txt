@@ -14,7 +14,8 @@ with other versions too.
 I didn't test it with windows. If you try to run it with windows,
 please send me a short message, either if you had success or not. 
 
-Thomas  <thg@users.sourceforge.net>
+  Thomas  <thg@users.sourceforge.net> 
+          http://tagged.sourceforge.net
 
 
 tagged.pl

@@ -1,7 +1,37 @@
-Revision history for Perl module MP3::Tag, MP3::TAG::ID3v1, MP3::TAG::ID3v2
+Revision history for Perl module MP3::Tag, MP3::Tag::ID3v1, MP3::Tag::ID3v2
 
-Release Name: 0.1-beta
-======================
+Release Name: 0.2 (beta)
+========================
+Changes:
+
+--due to problems when run at windows:
+  * Added a second seek to ID3v1::write_tag, as windows writes at a wrong 
+    position otherwise
+  * Setting Filehandle to binmode after opening a mp3 file 
+  * ID3v2: write_tag creates a temp file (if neccessary) now in the same
+    directory where the original mp3 files is located and not in /tmp
+
+* Added tk-tag.pl, a graphical interface for MP3::Tag. tk-tag.pl is a alpha
+  version
+* Added a new manpage MP3::Tag::ID3v2-Data which contains information about
+  the ID3v2 frames and the data returned by MP3::Tag::Id3v2::getFrame() 
+* Frames RVRB ("Reverb"), COMR ("Commercial frame"), AENC ("Audio encryption"),
+  GRID ("Group identification registration"), RBUF ("Recommended buffer size")
+  and SYTC ("Synchronized lyric/text") are now supported	
+* Added some test to test.pl for creating new tags
+* ID3v2::getFrameIDs returns now a hash reference, which contains the found
+  frames. The keys are the 4 byte codes of the frames, which are needed for
+  getFrame . The according values are the english (long) names of the frames.
+* ID3v2::write_tag - Updating tagsize after writing tag 
+* ID3v1::all() returns in array context all fields, otherwise only the song
+* MP3::ID3v1::write_tag didn't returned an error if a file couldn't be opened
+  for writing. Now it does.
+* Renamed MP3::TAG to MP3::Tag following a suggestion of ANDK from CPAN
+* Makefile.PL : Added that Compress::Zlib and File::Basename is needed for 
+  installation of MP3::Tag
+
+Release Name: 0.1 (beta)
+========================
 Changes:
 * Added documentation to the modules
 

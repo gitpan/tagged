@@ -4,20 +4,20 @@ package MP3::Tag;
 #
 # provides a general interface for different modules, which can read tags
 #
-# at the moment MP3::Tag works with MP3::TAG::ID3v1 and MP3::TAG::ID3v2
+# at the moment MP3::Tag works with MP3::Tag::ID3v1 and MP3::Tag::ID3v2
 
 use strict;
-use MP3::TAG::ID3v1;
-use MP3::TAG::ID3v2;
+use MP3::Tag::ID3v1;
+use MP3::Tag::ID3v2;
 use vars qw/$VERSION/;
 
-$VERSION="0.1";
+$VERSION="0.20";
 
 =pod
 
 =head1 NAME
 
-Tag - Perl extension reading tags of mp3 files
+Tag - Module for reading tags of MP3 audio files
 
 =head1 SYNOPSIS
 
@@ -46,7 +46,7 @@ Tag is a wrapper module to read different tags of mp3 files.
 It provides an easy way to access the functions of seperate moduls
 which do the handling of reading/writing the tags itself.
 
-At the moment MP3::TAG::ID3v1 and MP3::TAG::ID3v2 are supported.
+At the moment MP3::Tag::ID3v1 and MP3::Tag::ID3v2 are supported.
 
 !! As this is only a beta version, it is very likely that the design 
 !! of this wrapper module will change soon !!
@@ -55,7 +55,7 @@ At the moment MP3::TAG::ID3v1 and MP3::TAG::ID3v2 are supported.
 
 =item new
 
- $mp3 = MP3::TAG->new($filename);
+ $mp3 = MP3::Tag->new($filename);
 
 Creates a mp3-object, which can be used to retrieve/set
 different tags.
@@ -81,7 +81,7 @@ a list @tags which contains strings identifying the found tags.
 
 Each found tag can be accessed then with $mp3->{tagname} .
 
-Use the information found in MP3::TAG::ID3v1 and MP3::TAG::ID3v2
+Use the information found in MP3::Tag::ID3v1 and MP3::Tag::ID3v2
 to see what you can do with the tags.
 
 =cut 
@@ -92,11 +92,11 @@ sub getTags {
   my $self = shift;
   my (@IDs, $ref);
   if ($self->open()) {
-    if (defined ($ref = MP3::TAG::ID3v2->new($self))) {
+    if (defined ($ref = MP3::Tag::ID3v2->new($self))) {
       $self->{ID3v2} = $ref;
       push @IDs, "ID3v2";
     }
-    if(defined ($ref = MP3::TAG::ID3v1->new($self))) {
+    if(defined ($ref = MP3::Tag::ID3v1->new($self))) {
       $self->{ID3v1} = $ref;
       push @IDs, "ID3v1";
     }
@@ -120,9 +120,9 @@ sub newTag {
   my $self = shift;
   my $whichTag = shift;
   if ($whichTag eq "ID3v1") {
-    $self->{ID3v1}= MP3::TAG::ID3v1->new($self,1);
+    $self->{ID3v1}= MP3::Tag::ID3v1->new($self,1);
   } elsif ($whichTag eq "ID3v2") {
-    $self->{ID3v2}= MP3::TAG::ID3v2->new($self,1);
+    $self->{ID3v2}= MP3::Tag::ID3v2->new($self,1);
   }
 }
 
@@ -130,20 +130,20 @@ sub newTag {
 
 =item genres
 
-  @allgenres = $mp3->genres;
+  $allgenres = $mp3->genres;
   $genreName = $mp3->genres($genreID);
   $genreID   = $mp3->genres($genreName);  
 
-Returns a list of all genres, or the according name or id to
-a given id or name.
+Returns a list of all genres (reference to an array), or the according 
+name or id to a given id or name.
 
-This function is only a shortcut to MP3::TAG::ID3v1->genres.
+This function is only a shortcut to MP3::Tag::ID3v1->genres.
 
 =cut
 
 sub genres {
   # returns all genres, or if a parameter is given, the according genre
-  return MP3::ID3v1::genres(shift);
+  return MP3::Tag::ID3v1::genres(shift);
 }
 
 ################ file subs
@@ -153,6 +153,7 @@ sub open {
   unless (exists $self->{FH}) {
     if (open (FH, $mode . $self->{filename})) {
       $self->{FH} = *FH;
+      binmode $self->{FH};
     } else {
       warn "Open $self->{filename} failed: $!\n";
     }
@@ -223,6 +224,6 @@ sub DESTROY {
 
 =head1 SEE ALSO
 
-MP3::TAG::ID3v1, MP3::TAG::ID3v2
+MP3::Tag::ID3v1, MP3::Tag::ID3v2
 
 =cut

@@ -19,16 +19,24 @@ the module. You can also read the documentation of this
 module with 
 
 man MP3::Tag
-man MP3::TAG::ID3v1
-man MP3::TAG::ID3v2
+man MP3::Tag::ID3v1
+man MP3::Tag::ID3v2
+man MP3::Tag::ID3v2-Data
 
 More information about this project, new releases and so on, can
-be found at:
+be found at:         
 
-http://sourceforge.net/projects/tagged
+http://tagged.sourceforge.net
 
 Success with this
 
   Thomas
 
   <thg@users.sourceforge.net>
+
+
+                     tk-tag.pl
+==============================================================
+
+In the directory tk-tag you can find a graphical interface
+for MP3::Tag. See the README file in that directory.

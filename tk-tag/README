@@ -1,0 +1,23 @@
+                       tk-tag.pl
+====================================================================
+
+This program is a graphical interface for the MP3::Tag library.
+
+It's the first released alpha version. Most buttons do not have a
+function yet.
+
+But is shows you alread the contents of the ID3v1/ID3v1.1 and ID3v2.3
+tags.
+
+And you can change the filename and the information in the ID3v1.1 Tag
+and save these changes.  You cannot save any changes of the ID3v2.3
+tag with this version of tk-tag.pl, although this is supported by
+MP3::Tag.
+
+To use this program, you must have the Tk and Tk::JPEG modules from
+CPAN installed. And of course MP3::Tag.
+
+
+   Thomas
+
+<thg@users.sourceforge.net>

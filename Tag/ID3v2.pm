@@ -1,24 +1,27 @@
-package MP3::TAG::ID3v2;
+package MP3::Tag::ID3v2;
 
 use strict;
-use MP3::TAG::ID3v1;
+use MP3::Tag::ID3v1;
 use Compress::Zlib;
+use File::Basename;
 
-use vars qw /%format %long_names/;
+use vars qw /%format %long_names $VERSION/;
+
+$VERSION="0.20";
 
 =pod
 
 =head1 NAME
 
-MP3::TAG::ID3v2 - Read / Write ID3v2.3 tags from MP3 audio files
+MP3::Tag::ID3v2 - Read / Write ID3v2.3 tags from mp3 audio files
 
 =head1 SYNOPSIS
 
-MP3::TAG::ID3v2 is designed to be called from the MP3::Tag module.
+MP3::Tag::ID3v2 is designed to be called from the MP3::Tag module.
 It then returns a ID3v2-tag-object, which can be used in a users
 program.
 
-  $id3v2 = MP3::TAG::ID3v2->new($mp3obj);
+  $id3v2 = MP3::Tag::ID3v2->new($mp3obj);
 
 C<$mp3obj> is a object from MP3::Tag. See according documentation.
 C<$tag> is undef when no tag is found in the C<$mp3obj>.
@@ -125,18 +128,20 @@ sub new {
 
 =item getFrameIDs()
 
-  @frameIDs = $tag->getFrameIDs;
+  $frameIDs = $tag->getFrameIDs;
 
-getFrameIDs loops through all frames, which exist in the tag. It returns a
-list of all available Frame IDs. These are 4-character-codes (short names),
-the internal names of the frames.
+getFrameIDs loops through all frames, which exist in the tag. It
+returns a hash reference with a list of all available Frame IDs. The
+keys of the returned hash are 4-character-codes (short names), the
+internal names of the frames, the according value is the english
+(long) name of the frame.
 
 You can use this list to iterate over all frames to get their data, or to
 check if a specific frame is included in the tag.
 
 If there are multiple occurences of a frame in one tag, the first frame is
 returned with its normal short name, following frames of this type get a
-'00', '01', '02', ... appended to this name. These expanded names can then
+'00', '01', '02', ... appended to this name. These names can then
 used with C<getFrame> to get the information of these frames.
 
 =cut
@@ -189,7 +194,11 @@ sub getFrameIDs {
   $self->{tag_data}=substr $self->{tag_data}, 0, $pos;
 
   $self->{frameIDs} =1;
-  return keys %{$self->{frames}};
+  my %return;
+  foreach (keys %{$self->{frames}}) {
+    $return{$_}=$long_names{$_};
+  } 
+  return \%return; 
 }
 
 =pod
@@ -226,6 +235,9 @@ If there exists a second parameter like raw, the whole frame data is returned,
 but not the frame header. If the data was stored compressed, it is also in
 raw mode uncompressed before it is returned. Then $info contains a string
 with all data (which might be binary), and $name against the long frame name.
+
+See also L<MP3::Tag::ID3v2-Data> for a list of all supported frames, and
+some other explanations of the returned data structure.
 
 ! Encrypted frames are not supported yet !
 
@@ -311,7 +323,6 @@ sub write_tag {
   my $header = 'ID3' . chr(3) . chr(0);
 
   # actually write the tag
-
   my $mp3obj = $self->{mp3};  
 
   if (length ($self->{tag_data}) <= $self->{tagsize}) {
@@ -325,13 +336,22 @@ sub write_tag {
       $mp3obj->write($self->{tag_data});
       $mp3obj->write($n x ($self->{tagsize} - length ($self->{tag_data})));
     } else {
-      warn "Couldn't write tag!";
+      warn "Couldn't open file write tag!";
       return undef;
     } 
   } else {
-    my $tempfile = '/tmp/tmp.mp3'; #BETTER: try first to use same dir
-    if (open (NEW, ">$tempfile")) {
-      my $padding = 256; # BETTER: calculate padding depending on mp3 size to 
+    my $tempfile = dirname($mp3obj->{filename}) . "/TMPxx";
+    my $count = 0;
+    while (-e $tempfile . $count . ".tmp") {
+      if ($count++ > 999) {
+	warn "Problems with tempfile\n";
+	return undef;
+      }
+    }
+    $tempfile .= $count . ".tmp";
+     if (open (NEW, ">$tempfile")) {
+      binmode NEW;
+      my $padding = 512; # BETTER: calculate padding depending on mp3 size to 
                          #         fit to 4k cluster size
       my $size = unpack('B32', pack ('N', length($self->{tag_data})+$padding));
       substr ($size, -$_, 0) = '0' for (qw/28 21 14 7/);
@@ -344,10 +364,14 @@ sub write_tag {
       }
       close NEW;
       $mp3obj->close;
-      system("mv",$tempfile,$mp3obj->{filename}) 
-	unless rename $tempfile, $mp3obj->{filename};
+      if (( rename $tempfile, $mp3obj->{filename})||
+	  (system("mv",$tempfile,$mp3obj->{filename})==0)) {
+	$self->{tagsize} = length($self->{tag_data})+$padding; 
+      } else {
+	warn "Couldn't rename temporary file\n";    
+      }
     } else {
-      warn "Couldn't write tag!";
+      warn "Couldn't open file to write tag!\n";
       return undef;
     }
   }
@@ -555,7 +579,7 @@ sub what_data{
   my @data;
 
   foreach (@$format) {
-    push @data, $_->{name};
+    push @data, $_->{name} unless $_->{name} eq "_encoding";
   }
 
   return \@data;
@@ -727,46 +751,51 @@ sub DESTROY {
 #
 # How to store frame formats?
 #
-# format{fname}->[i]->{xxx}
+# format{fname}=[{xxx},{xxx},...]
 #
-# i - von 0 - ... in der Reihenfolge, in der die bestandteile des frames ausgelesen werden sollen
+# array containing descriptions of the different parts of a frame. Each description
+# is a hash, which contains information, how to read the part.
 #
-#  xxx =   * {len}=s reg expr pattern  - gibt an, wieviele zeichen gelesen werden sollen
-#                                        spezialfälle: 0 = lesen bis \x00
-#                                                     -1 = alle restlichen zeichen lesen
-#          * {name}=s - name unter der bestandteil an benutzer zurueckgegeben wird, aber:
-#                     name = encoding - wird nicht zurueckgegeben, sondern setzt encoding fuer diesen frame
-#          * {encoded}=1   - das ergebnis laut encoding codieren
-#          * {func}=s - reference auf funktion. diese funktion erhält den gefunden Wert als Argument, und
-#                       einen neuen Wert zurückgeben
-#          * {re2}=s - hash, das reg expr enthaelt, die vor rueckgabe an benutzer angewendet werden (anwendung
-#                      nachdem {func} aufgerufen wurde)
+# As Example: TCON
+#     Text encoding                $xx
+#     Information                  <text string according to encoding
 #
-#          * {data}=1 - gibt an, dass binary data im feld enthalten sein kann (auch nachdem evtl. func aufgerufen wurde)
+# TCON consist of two parts, so a array with two hashes is needed to describe this frame.
 #
-#          * {default}=s - default fuer feld, falls feld leer oder nicht gefunden
+# A hash may contain the following keys, len and name are mandatory.
+#
+#          * len     - says how many bytes to read for this part. 0 means read until \x00, -1 means
+#                      read until end of frame
+#          * name    - the user sees this part of the frame under this name. If this part contains
+#                      binary data, the name should start with a _      
+#                      The name "_encoding" is reserved for the encoding part of a frame, which
+#                      is handled specifically to support encoding of text strings
+#          * encoded - this part has to be encoded following to the encoding information
+#          * func    - a reference to a sub, which is called after the data is extracted. It gets
+#                      this data as argument and has to return some data, which is then returned
+#                      a result of this part
+#          * re2     - hash with information for a replace: s/key/value/ 
+#                      This is used after a call of func 
+#          * data=1  - indicator that this part contains binary data
+#          * default - default value, if data contains no information
 #
 # TCON example:
 # 
-# $format{TCON}->[0]->{len}      = 1
-#                   ->{name}     = 'encoding'
-#                   ->{data}     = 1
-#              ->[1]->{len}      = -1
-#                   ->{name}     = 'text'
-#                   ->{func}     = \&TCON
-#                   ->{re2}      = {'\(RX\)'=>'Remix', '\(CR\)'=>'Cover'}
+# $format{TCON}=[{len=> 1, name=>"encoding", data=>1},
+#                {len=>-1, name=>"text", func=>\&TCON, re2=>{'\(RX\)'=>'Remix', '\(CR\)'=>'Cover'}] 
 #
-# Fragen / Ideen
-#
-# * Tags duerfen mehrfach vorkommen. Wie werden die einzelnen verschiedenen Tags getrennt voneinander
-#   gespeichert? $result->{COMM}->[i]=... falls mehrere, sonst string direkt in $result->{COMM} speichern 
-#
-# * Frame size faelschlicherweise im Tag size format gespeichert? kann das automatisch erkannt werden?
-# 
 ############################
 
 sub toNumber {
   return unpack ("C", shift);
+}
+
+sub TwoByteNumber {
+  return unpack ("S", shift);
+}
+
+sub FourByteNumber {
+  return unpack ("L", shift);
 }
 
 sub APIC {
@@ -784,10 +813,21 @@ sub APIC {
   return $pictypes[$index];
 }
 
+sub COMR {
+  my $number = unpack ("C", shift);
+  my @receivedas = ("Other","Standard CD album with other songs",
+		    "Compressed audio on CD","File over the Internet",
+		    "Stream over the Internet","As note sheets",
+		    "As note sheets in a book with other sheets",
+		    "Music on other media","Non-musical merchandise");
+  return $number if ($number>8);
+  return $receivedas[$number];
+}
+
 sub TCON {
   my $data = shift;
   if ($data =~ /\((\d+)\)/) {
-    $data =~ s/\((\d+)\)/MP3::TAG::ID3v1::genres($1)/e;
+    $data =~ s/\((\d+)\)/MP3::Tag::ID3v1::genres($1)/e;
   }
  return $data;
 } 
@@ -878,18 +918,23 @@ BEGIN {
   my $language    ={len=>3, name=>"Language"};
 
   %format = (
-	     #AENC => [],
+	     AENC => [$url, {len=>2, name=>"Preview start", func=>\&TwoByteNumber},
+		      {len=>2, name=>"Preview length", func=>\&TwoByteNumber}],
 	     APIC => [$encoding, {len=>0, name=>"MIME type"}, 
 		      {len=>1, name=>"Picture Type", func=>\&APIC}, $description, $data],
 	     COMM => [$encoding, $language, {name=>"short", len=>0, encoding=>1}, $text_enc],
-	     #COMR => [],
-	     ENCR => [{len=>0, name=>"Owner ID"}, {len=>0, name=>"Method symbol"},
-		      $data],
+	     COMR => [$encoding, {len=>0, name=>"Price"}, {len=>8, name=>"Valid until"}, 
+	              $url, {len=>1, name=>"Received as", func=>\&COMR}, 
+	              {len=>0, name=>"Name of Seller", encoded=>1},
+	              $description, {len=>0, name=>"MIME type"}, 
+		      {len=>-1, name=>"_Logo", data=>1}],
+	     ENCR => [{len=>0, name=>"Owner ID"}, {len=>0, name=>"Method symbol"}, $data],
 	     #EQUA => [],
 	     #ETCO => [],
 	     GEOB => [$encoding, {len=>0, name=>"MIME type"}, 
 		      {len=>0, name=>"Filename"}, $description, $data],
-	     #GRID => [],
+	     GRID => [{len=>0, name=>"Owner"}, {len=>1, name=>"Symbol", func=>\&toNumber},
+	              $data],
 	     IPLS => [$encoding, $text_enc],
 	     LINK => [{len=>3, name=>"_ID"}, {len=>0, name=>"URL"}, $text],
 	     MCDI => [$data],
@@ -900,8 +945,21 @@ BEGIN {
 	     POPM => [{len=>0, name=>"URL"},{len=>1, name=>"Rating", func=>\&toNumber}, $data],
 	     #POSS => [],
 	     PRIV => [{len=>0, name=>"Text"}, $data],
-	     #RBUF => [],
-	     #SYCT => [],
+	     RBUF => [{len=>4, name=>"Buffer size", func=>\&FourByteNumber},
+		      {len=>4, name=>"Embedded info flag", func=>\&toNumber},
+		      {len=>4, name=>"Offset to next tag", func=>\&FourByteNumber}],
+	     #RVAD => [],
+	     RVRB => [{len=>2, name=>"Reverb left (ms)", func=>\&TwoByteNumber},
+		      {len=>2, name=>"Reverb right (ms)", func=>\&TwoByteNumber},
+		      {len=>1, name=>"Reverb bounces (left)", func=>\&toNumber},
+		      {len=>1, name=>"Reverb bounces (right)", func=>\&toNumber},
+		      {len=>1, name=>"Reverb feedback (left to left)", func=>\&toNumber},
+		      {len=>1, name=>"Reverb feedback (left to right)", func=>\&toNumber},
+		      {len=>1, name=>"Reverb feedback (right to right)", func=>\&toNumber},
+		      {len=>1, name=>"Reverb feedback (right to left)", func=>\&toNumber},
+		      {len=>1, name=>"Premix left to right", func=>\&toNumber},
+		      {len=>1, name=>"Premix right to left", func=>\&toNumber},],
+	     SYTC => [{len=>1, name=>"Time Stamp Format", func=>\&toNumber}, $data],
 	     #SYLT => [],
 	     T    => [$encoding, $text_enc],
 	     TCON => [$encoding, {%$text_enc, func=>\&TCON, re2=>{'\(RX\)'=>'Remix', '\(CR\)'=>'Cover'}}], 
@@ -909,13 +967,11 @@ BEGIN {
 	     TFLT => [$encoding, {%$text_enc, func=>\&TFLT}],
 	     TMED => [$encoding, {%$text_enc, func=>\&TMED}],
 	     TXXX => [$encoding, $description, $text],
+	     UFID => [{%$description, name=>"Text"}, $data],
 	     USER => [$encoding, $language, $text],
 	     USLT => [$encoding, $language, $description, $text],
-	     #RVAD => [],
-	     #RVRB => [],
 	     W    => [$url],
 	     WXXX => [$encoding, $description, $url],
-	     UFID => [{%$description, name=>"Text"}, $data],
 	    );
 
   %long_names = (
@@ -1000,7 +1056,7 @@ BEGIN {
 
 =head1 SEE ALSO
 
-MP3::Tag, MP3::TAG::ID3v1
+L<MP3::Tag>, L<MP3::Tag::ID3v1>, L<MP3::Tag::ID3v2-Data>
 
 ID3v2 standard - http://www.id3.org
 

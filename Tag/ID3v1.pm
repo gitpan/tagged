@@ -1,10 +1,10 @@
-package MP3::TAG::ID3v1;
-
-# reads ID3v1 and ID3v1.1 mp3-tags
-# writes ID3v1.1 mp3-tags
+package MP3::Tag::ID3v1;
 
 use strict;
-use vars qw /@mp3_genres @winamp_genres $AUTOLOAD %ok_length/;
+use vars qw /@mp3_genres @winamp_genres $AUTOLOAD %ok_length $VERSION/;
+
+$VERSION="0.50";
+
 # allowed fields in ID3v1.1 and max length of this fields (expect for track and genre which are coded later)
 %ok_length = (song => 30, artist => 30, album => 30, comment => 28, track => 3, genre => 30, year=>4, genreID=>1); 
 
@@ -12,16 +12,16 @@ use vars qw /@mp3_genres @winamp_genres $AUTOLOAD %ok_length/;
 
 =head1 NAME
 
-MP3::TAG::ID3v1 - Perl extension for reading / writing ID3v1 tags of mp3-files
+MP3::Tag::ID3v1 - Module for reading / writing ID3v1 tags of MP3 audio files
 
 =head1 SYNOPSIS
 
-MP3::TAG::ID3v2 is designed to be called from the MP3::Tag module.
+MP3::Tag::ID3v2 is designed to be called from the MP3::Tag module.
 It then returns a ID3v2-tag-object, which can be used in a users
 program.
 
-  use MP3::TAG::ID3v1;
-  $id3v1 = MP3::TAG::ID3v1->new($mp3obj);
+  use MP3::Tag::ID3v1;
+  $id3v1 = MP3::Tag::ID3v1->new($mp3obj);
 
 C<$mp3obj> is a object from MP3::Tag. See according documentation.
 C<$tag> is undef when no tag is found in the C<$mp3obj>.
@@ -61,9 +61,9 @@ Thomas Geffert, thg@users.sourceforge.net
 
 =item new()
 
-  $id3v1 = MP3::TAG::ID3v1->new($mp3obj[, $create]);
+  $id3v1 = MP3::Tag::ID3v1->new($mp3obj[, $create]);
 
-Generally called from MP3::TAG, because a $mp3obj is needed.
+Generally called from MP3::Tag, because a $mp3obj is needed.
 If $create is true, a new tag is created. Otherwise undef is
 returned, if now ID3v1 tag is found in the $mp3obj.
 
@@ -140,6 +140,7 @@ sub AUTOLOAD {
     $self->{$attr}=$new;
     $self->{changed} = 1;
   }
+  $self->{$attr} =~ s/ +$//;
   return $self->{$attr};
 }
 
@@ -164,7 +165,7 @@ sub all {
     my $new;
     for (qw/song artist album year comment track genre/) {
       $new = shift;
-      $new =~ s/ *$//;
+      $new =~ s/ +$//;
       $new = substr  $new, 0, $ok_length{$_};
       $self->{$_}=$new;
     }
@@ -176,11 +177,15 @@ sub all {
     $self->{genre} = id2genre($self->{genreID});
     $self->{changed} = 1;
   }
-  return ($self->{song},$self->{artist},$self->{album},
-	  $self->{year},$self->{genre}, 
-	  $self->{track}, $self->{comment});
+  for (qw/song artist album year comment track genre/) {
+    $self->{$_} =~ s/ +$//;
+  }	
+  if (wantarray) {
+    return ($self->{song},$self->{artist},$self->{album},
+	    $self->{year},$self->{comment}, $self->{track}, $self->{genre});
+  }
+  return $self->{song}; 
 }
-
 =pod
 
 =item writeTag()
@@ -203,11 +208,15 @@ sub writeTag {
     $mp3obj->seek(-128,2);
     $mp3obj->read(\$mp3tag, 3);
     if ($mp3tag eq "TAG") {
+      $mp3obj->seek(-125,2); # neccessary for windows
       $mp3obj->write($data);
     } else {
       $mp3obj->seek(0,2);
       $mp3obj->write("TAG$data");
     }
+  } else {
+    warn "Couldn't open file to write tag";
+    return 0;
   }
   return 1;
 }
@@ -359,7 +368,7 @@ BEGIN { @mp3_genres = ( 'Blues', 'Classic Rock', 'Country', 'Dance',
 
 =head1 SEE ALSO
 
-MP3::Tag, MP3::TAG::ID3v2
+MP3::Tag, MP3::Tag::ID3v2
 
 ID3v1 standard - http://www.id3.org
 

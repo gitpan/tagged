@@ -43,8 +43,8 @@ for my $filename (@ARGV) {
   if (exists $mp3->{ID3v2}) {
     $v2++;
     print " **  found ID3v2 - TAG\n";
-    my @frames = $mp3->{ID3v2}->getFrameIDs();
-    foreach my $frame (@frames) {
+    my $frames = $mp3->{ID3v2}->getFrameIDs();
+    foreach my $frame (keys %$frames) {
        my ($info, $name) = $mp3->{ID3v2}->getFrame($frame);
        next unless defined $info;
        if (ref $info) {
