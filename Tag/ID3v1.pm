@@ -3,7 +3,7 @@ package MP3::Tag::ID3v1;
 use strict;
 use vars qw /@mp3_genres @winamp_genres $AUTOLOAD %ok_length $VERSION/;
 
-$VERSION="0.50";
+$VERSION="0.52";
 
 # allowed fields in ID3v1.1 and max length of this fields (expect for track and genre which are coded later)
 %ok_length = (song => 30, artist => 30, album => 30, comment => 28, track => 3, genre => 30, year=>4, genreID=>1); 
@@ -16,14 +16,14 @@ MP3::Tag::ID3v1 - Module for reading / writing ID3v1 tags of MP3 audio files
 
 =head1 SYNOPSIS
 
-MP3::Tag::ID3v2 is designed to be called from the MP3::Tag module.
-It then returns a ID3v2-tag-object, which can be used in a users
+MP3::Tag::ID3v1 is designed to be called from the MP3::Tag module.
+It then returns a ID3v1-tag-object, which can be used in a users
 program.
 
   use MP3::Tag::ID3v1;
   $id3v1 = MP3::Tag::ID3v1->new($mp3obj);
 
-C<$mp3obj> is a object from MP3::Tag. See according documentation.
+C<$mp3obj> is a object from MP3::Tag. See L<MP3::Tag|according documentation>.
 C<$tag> is undef when no tag is found in the C<$mp3obj>.
   
 * Reading the tag
@@ -199,6 +199,8 @@ Writes the ID3v1 tag to the file.
 sub writeTag {
   my $self = shift;
   return undef unless exists $self->{song} && exists $self->{changed};
+  $self->{track}=0 unless $self->{track} =~ /^\d+$/;
+  $self->{genreID}=255 unless $self->{genreID} =~ /^\d+$/;
   my $data = pack("a30a30a30a4a28xCC",$self->{song},$self->{artist},$self->{album}, 
 		  $self->{year}, $self->{comment}, $self->{track}, $self->{genreID});
   my $mp3obj = $self->{mp3};
@@ -368,7 +370,7 @@ BEGIN { @mp3_genres = ( 'Blues', 'Classic Rock', 'Country', 'Dance',
 
 =head1 SEE ALSO
 
-MP3::Tag, MP3::Tag::ID3v2
+L<MP3::Tag>, L<MP3::Tag::ID3v2>
 
 ID3v1 standard - http://www.id3.org
 

@@ -1,6 +1,17 @@
 Revision history for Perl module MP3::Tag, MP3::Tag::ID3v1, MP3::Tag::ID3v2
 
-Release Name: 0.2 (beta)
+Release Name: 0.21
+==================
+Changes:
+
+* tk-tag has lots of new functions (see tk-tag README)
+* getFrameIDs returns now always a hash ref of all existing frames, not only
+  when called the first time
+* Some minor problems in documentation are corrected.
+* ID3v2::add_frame returns the name of the newly created frame, which can
+  differ from the short name when already such a frame exists.
+
+Release Name: 0.20 (beta)
 ========================
 Changes:
 

@@ -7,7 +7,7 @@ use File::Basename;
 
 use vars qw /%format %long_names $VERSION/;
 
-$VERSION="0.20";
+$VERSION="0.22";
 
 =pod
 
@@ -148,7 +148,13 @@ used with C<getFrame> to get the information of these frames.
 
 sub getFrameIDs {
   my $self=shift;
-  return if exists $self->{frameIDs};
+  if (exists $self->{frameIDs}) {
+    my %return;
+    foreach (keys %{$self->{frames}}) {
+      $return{$_}=$long_names{substr($_,0,4)};
+    } 
+    return \%return; 
+  }
   my $pos=$self->{frame_start}; 
   if ($self->{flags}->{extheader}) {
     warn "getFrameIDs: possible wrong IDs because of unsupported extended header\n";
@@ -196,7 +202,7 @@ sub getFrameIDs {
   $self->{frameIDs} =1;
   my %return;
   foreach (keys %{$self->{frames}}) {
-    $return{$_}=$long_names{$_};
+    $return{$_}=$long_names{substr($_,0,4)};
   } 
   return \%return; 
 }
@@ -368,7 +374,7 @@ sub write_tag {
 	  (system("mv",$tempfile,$mp3obj->{filename})==0)) {
 	$self->{tagsize} = length($self->{tag_data})+$padding; 
       } else {
-	warn "Couldn't rename temporary file\n";    
+	warn "Couldn't rename temporary file $tempfile\n";    
       }
     } else {
       warn "Couldn't open file to write tag!\n";
@@ -393,21 +399,34 @@ original filename.
 sub remove_tag {
   my $self = shift;
   my $mp3obj = $self->{mp3};  
-  my $tempfile = '/tmp/tmp.mp3'; #BETTER: try first to use same dir
-    if (open (NEW, ">$tempfile")) {
-      my $buf;
-      $mp3obj->seek($self->{tagsize}+10,0);
-      while ($mp3obj->read(\$buf,16384)) {
-	print NEW $buf;
-      }
-      close NEW;
-      $mp3obj->close;
-      system("mv",$tempfile,$mp3obj->{filename}) 
-	unless rename $tempfile, $mp3obj->{filename};
-    } else {
-      warn "Couldn't write temp file\n";
+  my $tempfile = dirname($mp3obj->{filename}) . "/TMPxx";
+  my $count = 0;
+  while (-e $tempfile . $count . ".tmp") {
+    if ($count++ > 999) {
+      warn "Problems with tempfile\n";
       return undef;
     }
+  }
+  $tempfile .= $count . ".tmp";
+  if (open (NEW, ">$tempfile")) {
+    my $buf;
+    binmode NEW;
+    $mp3obj->seek($self->{tagsize}+10,0);
+    while ($mp3obj->read(\$buf,16384)) {
+      print NEW $buf;
+    }
+    close NEW;
+    $mp3obj->close;
+    unless (( rename $tempfile, $mp3obj->{filename})||
+	    (system("mv",$tempfile,$mp3obj->{filename})==0)) {
+      warn "Couldn't rename temporary file $tempfile\n";    
+    }
+    system("mv",$tempfile,$mp3obj->{filename}) 
+      unless rename $tempfile, $mp3obj->{filename};
+  } else {
+    warn "Couldn't write temp file\n";
+    return undef;
+  }
   return 1;
 }
 
@@ -415,7 +434,7 @@ sub remove_tag {
 
 =item add_frame()
 
-  $id3v2->add_frame($fname, @data);
+  $fn = $id3v2->add_frame($fname, @data);
 
 Add a new frame, identified by the short name $fname. 
 The $data must consist from so much elements, as described
@@ -424,11 +443,23 @@ parameter and you would like standard ascii encoding, you
 can omit the parameter or set it to 0. Any other encoding
 is not supported yet, and thus ignored. 
 
+It returns the the short name $fn, which can differ from
+$fname, when there existed already such a frame. If no
+other frame of this kind is allowed, an empty string is
+returned. Otherwise the name of the newly created frame
+is returned (which can have a 01 or 02 or ... appended). 
+
+Data must be undef or equal to the number of fields of the tag.
+
 Examples:
 
- add_frame("TIT2", 0, "Abba");   # both the same, but
- add_frame("TIT2", "Abba");      # this one with implicit encoding
+ $f = add_frame("TIT2", 0, "Abba");   # $f="TIT2"  
+ $f = add_frame("TIT2", "Abba");      # $f="TIT201", encoding=0 implicit
+
  add_frame("COMM", "ENG", "Short text", "This is a comment");
+ add_frame("COMM");                   # creates an empty frame
+ $f = add_frame("COMM", "ENG");       # ! wrong ! $f=undef, becaues number 
+                                      # of arguments is wrong
 
 =cut 
 
@@ -441,6 +472,10 @@ sub add_frame {
   #prepare the data
   my $args = $#$format;
 
+  unless (@data) {
+    @data = map {""} @$format;
+  }
+
   # encoding is not used yet
   my $encoding=0;
   my $defenc=1 if (($#data == ($args - 1)) && ($format->[0]->{name} eq "_encoding"));
@@ -450,7 +485,7 @@ sub add_frame {
   foreach my $fs (@$format) {
     if ($fs->{name} eq "_encoding") {
       $encoding = shift @data unless $defenc;
-      warn "Encoding of text not supported yet\n" if $encoding!=0;
+      warn "Encoding of text not supported yet\n" if $encoding;
       $encoding = 0; # other values are not used yet, so let's not write them in a tag
       $datastring .= chr($encoding);
       next;
@@ -465,12 +500,14 @@ sub add_frame {
   }
   #encrypt or compress data if this is wanted
 
+  # ... not supported yet
+
   #prepare header
   my $flags = 0;
   my $header = $fname . pack("Nn", length ($datastring), $flags);
 
   #add frame to tag_data
-  my $pos =length($self->{tag_data})+1;
+  my $pos =length($self->{tag_data});
   $self->{tag_data} .= $header . $datastring;
 
   if (exists $self->{frames}->{$fname}) {
@@ -479,10 +516,10 @@ sub add_frame {
       $fname++;
     }
   }
-  printf ("%s @ %s for %s (%x)\n", $fname, $pos, length($datastring), $flags) if 0==1;
+  printf ("%s @ %s for %s (%x)\n", $fname, $pos, length($datastring), $flags) if 1==0;
   $self->{frames}->{$fname} = {start=>$pos+10, size=>length($datastring), flags=>$flags};
 
-  return 1;
+  return $fname;
 }
 
 =pod
@@ -504,7 +541,7 @@ sub change_frame {
   $self->remove_frame($fname);
   $self->add_frame($fname, @data);
 
-  return 0;
+  return 1;
 }
 
 =pod
@@ -527,8 +564,7 @@ sub remove_frame {
   substr ($self->{tag_data}, $start, $size) = "";
   delete $self->{frames}->{$fname};
   foreach (keys %{$self->{frames}}) {
-    $self->{frames}->{$_}->{start} -= $size
-      if ($self->{frames}->{$_}->{start}>$start);
+    $self->{frames}->{$_}->{start} -= $size if ($self->{frames}->{$_}->{start}>$start);
   }
   return 1;
 }
@@ -537,9 +573,9 @@ sub remove_frame {
 
 =item supported_frames()
 
-  %frames = $id3v2->supported_frames();
+  $frames = $id3v2->supported_frames();
 
-Returns a hash with all supported frames. The keys of the
+Returns a hash reference with all supported frames. The keys of the
 hash are the short names of the supported frames, the 
 according values are the long (english) names of the frames.
 
@@ -560,9 +596,10 @@ sub supported_frames {
 
 =item what_data()
 
-  @data = $id3v2->what_data($fname);
+  $data = $id3v2->what_data($fname);
 
-Returns for a frame the needed data fields to write this tag.
+Returns an array reference with the needed data fields for a
+given frame.
 At this moment only the internal field names are returned,
 without any additional information about the data format of
 this field. Names beginning with an underscore (normally '_data')
@@ -692,7 +729,7 @@ sub extract_data {
 
       $found = $rule->{func}->($found) if (exists $rule->{func});
 
-      unless (exists $rule->{data}) {
+      unless (exists $rule->{data} || !defined $found) {
 	$found =~ s/[\x00]+$//;   # some progs pad text fields with \x00
 	$found =~ s![\x00]! / !g; # some progs use \x00 inside a text string to seperate text strings
 	$found =~ s/ +$//;        # no trailing spaces after the text
