@@ -1,5 +1,24 @@
 Revision history for Perl module MP3::Tag, MP3::Tag::ID3v1, MP3::Tag::ID3v2
 
+Release Name: 0.25
+==================
+Changes:
+
+* Bug-fix for MP3::Tag
+  If you created several mp3-objects for different files, the filehandles
+  for each file were not used correctly. Thanks to hakimian for reporting
+  this bug.
+* Bug-fix for ID3v2::remove_tag()
+  It was tried twice to rename one temp-file after removing the tag.
+  Thanks to Brent Sarten <bsarten@bigfoot.com> for reporting this.
+* Bug-fix for ID3v2::add_tag()
+  When adding a second (or third, ...) frame of a kind, a wrong header
+  could be written for this frame
+* Bug-fix for tk-tag 
+  When opening a new file, the contents of the ID3v2 tag of the last file
+  would be copied to the ID3v2 tag of the new file for all frames which
+  existed in the last file, but not in the new one.
+
 Release Name: 0.21
 ==================
 Changes:

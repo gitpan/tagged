@@ -34,6 +34,7 @@ ok(($v1 && ($v1->song eq "Song") && ($v1->track == 10)),"Reading ID3v1");
 
 #test - reading ID3v2
 ok($v2 && $v2->getFrame("COMM")->{short} eq "Test!","Reading ID3v2");
+$mp3->close;
 
 $mp3 = MP3::Tag->new("test2.mp3");
 $mp3->newTag("ID3v1");
@@ -52,6 +53,7 @@ ok($v2 && $v2->add_frame("TLAN","ENG"),"Creating new ID3v2");
 ok($v2 && $v2->write_tag,"Writing ID3v2");
 ok($v2 && $v2->add_frame("TLAN","GER"),"Changing ID3v2");
 ok($v2 && $v2->write_tag,"Writing ID3v2");
+$mp3->close;
 
 $mp3 = MP3::Tag->new("test2.mp3");
 $mp3->getTags;

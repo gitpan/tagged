@@ -26,9 +26,14 @@ use MP3::Tag;
 #        deleting all ID3v2 frames or whatsoever)
 
 
+
+#
+# Sorry, but I know that this is ugly code...
+#
+
 use vars qw/$tktag $VERSION %element %var/;
 
-$VERSION="0.10";
+$VERSION="0.15";
 
 $var{dir}= shift || "/mp3/unsorted";
 $var{v2specent}={TIT2=>{name=>"Song"}, TPE1=>{name=>"Artist"}, TALB=>{name=>"Album"}};
@@ -98,13 +103,15 @@ sub create_window {
 		       -variable => \$var{filter_inv},
 		       -command  => \&filter_and_show,
 		       -relief   => 'flat')->pack(-side=>"left");
-  $illine->Label(-textvariable=>\$var{visiblefiles}, -relief=>"sunken", width=>5)->pack(-side=>"left", -anchor=>"e");
+  $illine->Label(-textvariable=>\$var{visiblefiles}, -relief=>"sunken", width=>5)
+    ->pack(-side=>"left", -anchor=>"e");
   $cbline->pack(-side=>"top");
   $l=$filter->Entry(-textvariable=>\$var{filter}, -width=>25)->pack(-side=>"top");
   $l->bind("<FocusOut>" => \&filter_and_show);
   $l->bind("<KeyPress-Return>" => \&filter_and_show);
   $illine->pack(-side=>"top");
-  $element{rightFrameMul}->Label(-text=>"Options for automatic processing of serveral files")->pack(-side=>"top", -expand=>1, -fill=>"x");
+  $element{rightFrameMul}->Label(-text=>"Options for automatic processing of serveral files")
+    ->pack(-side=>"top", -expand=>1, -fill=>"x");
   # create filename-area
   my $fn1area = $element{rightFrame}->Frame();
   my $fn2area = $element{rightFrame}->Frame();
@@ -264,7 +271,9 @@ sub create_window {
   $element{fnformat} = $tktag->DialogBox(-title=>"Set filename format", -buttons=>["Set", "Cancel"]);
   $element{fnformat}->add("Label", -text=>"Format")->pack();
   $element{fnformat}->add("Entry", -width=>35, -textvariable=>\$var{fnformat})->pack();
-  $element{fnformat}->add("Label", -text=>"%s - Song       %l - Album\n%a - Artist     %t - Track\n %c - Comment    %g - Genre\n %y - Year\nSee also README file")->pack();
+  $element{fnformat}->add("Label", -text=>"%s - Song       %l - Album\n%a - Artist".
+			  "     %t - Track\n %c - Comment    %g - Genre\n %y - Year".
+			  "\nSee also README file")->pack();
 
   $element{addelframe} = $tktag->DialogBox(-buttons=>["Ok", "Cancel"]);
   $element{addelabel} = $element{addelframe}->add("Label")
@@ -383,7 +392,9 @@ sub load_filelist {
 sub scan_dir {
   delete $var{files};
   opendir(DIR, $var{dir}) or return;
-  my ($file);
+  $tktag->Busy;
+  $tktag->update;
+  my $file;
   while (defined($file = readdir(DIR))) {
     if (-d $var{dir} . $file) {
       $var{files}->{$file}={dir=>$var{dir}, isDir=>1}; 
@@ -396,6 +407,7 @@ sub scan_dir {
     }
   }
   closedir DIR;
+  $tktag->Unbusy;
 }
 
 sub filter_and_show {
@@ -433,12 +445,13 @@ sub select {
       return;
     }
   }
-    $var{filename}=$active; 
-    $var{oldfilename} = $var{filename};
+  $var{filename}=$active; 
+  $var{oldfilename} = $var{filename};
   my $filename = $var{dir}.$var{filename};
-  $var{mp3}=MP3::Tag->new($filename);
+  $var{mp3}->close if exists $var{mp3};
   delete $var{v1};
   delete $var{v2};
+  $var{mp3} = MP3::Tag->new($filename);
   $var{mp3}->getTags;
 
   # remove old things
@@ -475,6 +488,7 @@ sub select {
 	$var{"v2-$fname"} = $var{v2}->getFrame($fname);
 	$val->{entry}->bind('<FocusOut>' => v2_specent_change($fname));
       } else {
+	$var{"v2-$fname"} = "";
 	$val->{entry}->bind('<FocusOut>' => v2_specent_create($fname));
       }
     }
@@ -487,7 +501,7 @@ sub select {
     my @frames = sort keys %$frames;
     $element{frames}->delete("0","end");
     $element{frames}->insert("end", @frames);
-    show_frame($frames[0]);
+    show_frame($frames[0],1);
   } else {
     while (my ($fname, $val) = each %{$var{v2specent}}) {
       $var{"v2-$fname"}="";
@@ -526,11 +540,11 @@ sub v2_specent_create {
 }
 
 sub show_frame {
-  my $fname = shift;
+  my ($fname, $tagchanged) = @_;
   if (ref $fname) { # called from listbox-bind
     $fname = $fname->get("active");
   }
-  save_frameinfo();
+  save_frameinfo() unless defined $tagchanged;
   # delete last info
   foreach (@{$var{fpack}}) {
     $_->packForget();
@@ -538,7 +552,6 @@ sub show_frame {
   $var{fpack} = [];
   $var{current_frame}="";
   return unless length($fname) == 4 || length($fname) == 6;
-
   my $info;
   $var{current_frame} = $fname;
   ($info, $var{longname}) = $var{v2}->getFrame($fname);
@@ -561,6 +574,7 @@ sub show_frame {
 	my $l=$f->Label(-text=>"$key:", -justify=>"left")->pack(-side=>"left", -anchor=>"w");
 	$var{"frame_$key"} = $f->Text(-height=>2, -width=>40, -wrap=>"word")
 	  ->pack(-side=>"right", -anchor=>"e");
+	push @{$var{fpack}}, $var{"frame_$key"};
 	$var{"frame_$key"}->insert("0.0", $value);
 	$var{"frame_$key"}->bind('<Key>'=>[\&yyy, $l]);
       }
@@ -584,7 +598,7 @@ sub save_frameinfo {
   my @data=();
   foreach (@$format) {
     if (/^_/) {
-      warn "Saving changes of binary data not supported yet.";
+      #warn "Saving changes of binary data not supported yet.";
       next;
     }
     my $d = $var{"frame_$_"}->get("0.1","end");
@@ -784,7 +798,6 @@ sub del_frame {
     $element{v2caption}->configure(-background=>"yellow");
     my $fname= $element{addelistbox}->get("active","active");
     $fname =~ s/^([A-Z0-9]+) .*/$1/;
-    warn $fname;
     $var{v2}->remove_frame($fname);
     my $index=0;
     my $maxindex = $element{frames}->index("end");
@@ -793,7 +806,7 @@ sub del_frame {
     }
     $element{frames}->delete($index,$index);
     if ($var{current_frame} eq $fname) {
-      show_frame($element{frames}->get("active"));
+      show_frame($element{frames}->get("active"),1);
     }
     if (exists $var{v2specent}->{$fname}) {
       $var{"v2-$fname"}="";

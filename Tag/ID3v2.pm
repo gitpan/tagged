@@ -7,7 +7,7 @@ use File::Basename;
 
 use vars qw /%format %long_names $VERSION/;
 
-$VERSION="0.22";
+$VERSION="0.25";
 
 =pod
 
@@ -421,8 +421,6 @@ sub remove_tag {
 	    (system("mv",$tempfile,$mp3obj->{filename})==0)) {
       warn "Couldn't rename temporary file $tempfile\n";    
     }
-    system("mv",$tempfile,$mp3obj->{filename}) 
-      unless rename $tempfile, $mp3obj->{filename};
   } else {
     warn "Couldn't write temp file\n";
     return undef;
@@ -504,7 +502,7 @@ sub add_frame {
 
   #prepare header
   my $flags = 0;
-  my $header = $fname . pack("Nn", length ($datastring), $flags);
+  my $header = substr($fname,0,4) . pack("Nn", length ($datastring), $flags);
 
   #add frame to tag_data
   my $pos =length($self->{tag_data});

@@ -11,7 +11,7 @@ use MP3::Tag::ID3v1;
 use MP3::Tag::ID3v2;
 use vars qw/$VERSION/;
 
-$VERSION="0.20";
+$VERSION="0.22";
 
 =pod
 
@@ -36,6 +36,8 @@ Tag - Module for reading tags of MP3 audio files
     ...
   }
 
+  $mp3->close();
+
 =head1 AUTHOR
 
 Thomas Geffert, thg@users.sourceforge.net
@@ -53,7 +55,7 @@ At the moment MP3::Tag::ID3v1 and MP3::Tag::ID3v2 are supported.
 
 =over 4
 
-=item new
+=item new()
 
  $mp3 = MP3::Tag->new($filename);
 
@@ -72,7 +74,7 @@ sub new {
 
 =pod
 
-=item getTags
+=item getTags()
 
   @tags = $mp3->getTags;
 
@@ -107,12 +109,13 @@ sub getTags {
 
 =pod
 
-=item newTag
+=item newTag()
 
   $mp3->newTag($tagname);
 
 Creates a new tag of the given type $tagname. You
-can access it then with $mp3->{$tagname}
+can access it then with $mp3->{$tagname}. At the 
+moment ID3v1 and ID3v2 is supported as tagname.
 
 =cut
 
@@ -128,7 +131,7 @@ sub newTag {
 
 =pod
 
-=item genres
+=item genres()
 
   $allgenres = $mp3->genres;
   $genreName = $mp3->genres($genreID);
@@ -151,6 +154,7 @@ sub open {
   my $self=shift;
   my $mode= shift || "<";
   unless (exists $self->{FH}) {
+    local *FH;
     if (open (FH, $mode . $self->{filename})) {
       $self->{FH} = *FH;
       binmode $self->{FH};
@@ -160,6 +164,17 @@ sub open {
   }
   return exists $self->{FH};
 }
+
+=pod
+
+=item close()
+
+  $mp3->close;
+
+Closes the mp3 file. This is also done automatically, when the
+object is destroyed (eg at the end of the program).
+
+=cut
 
 sub close {
   my $self=shift;
@@ -224,6 +239,6 @@ sub DESTROY {
 
 =head1 SEE ALSO
 
-MP3::Tag::ID3v1, MP3::Tag::ID3v2
+L<MP3::Tag::ID3v1>, L<MP3::Tag::ID3v2>
 
 =cut
