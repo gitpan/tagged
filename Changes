@@ -1,4 +1,32 @@
-Revision history for Perl module MP3::Tag, MP3::Tag::ID3v1, MP3::Tag::ID3v2
+Revision history for Perl modules MP3::Tag, MP3::Tag::ID3v1, MP3::Tag::ID3v2
+             and for Perl program tk-tag
+
+Release Name: 0.30
+==================
+Changes:
+* Tag.pm
+  - autoinfo() function added. This returns artist/songtitle/track/album.
+    It tries to find this information in an ID3v1 or ID3v2 tag or tries 
+    to extract it from the filename. The order in which this happens
+    can be configured with the new config() function.
+* ID3v2.pm
+  - four new functions: artist(), song(), track() and album(). These
+    are included for compability with the ID3v1 and filename module.
+* Tag.pm / Tag::File.pm
+  - All file access routines are collected in an extra modul now.
+    This prevents circular references between Tag.pm and the ID3v..pm
+    modules. These circular references prevented Perl from calling
+    the destructor for mp3-objects.
+* tk-tag
+  - Loading/Saving of binary data in frame-fields is supported now
+  - tk-tag uses now the new what_data functionally of ID3v2 to offer 
+    BrowseEntrys for TCON and TFLT and also for parts of APIC and COMR
+  - Set Filename uses now the actual contents of the Tags not the old 
+    saved one
+  - Set Filename from ID3v2-Tag works now at least with Artist (%a),
+    Album(%l) and Song (%s)
+* ID3v2::what_data returns now also information about possible restricted
+  input for some frame fields (APIC; TCON; COMR; TFLT are supported yet).
 
 Release Name: 0.25
 ==================

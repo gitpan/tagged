@@ -3,7 +3,9 @@ use Tk;
 use Tk::JPEG;
 use Tk::DialogBox;
 use Tk::BrowseEntry;
-use POSIX;
+use Tk::FBox;
+use Tk::TextUndo;
+#use POSIX;
 use strict;
 use MP3::Tag;
 
@@ -11,14 +13,12 @@ use MP3::Tag;
 #
 # make all buttons alive
 #
-# load/save/view binary data
+# view binary data (as hex dump)
 #
 # delete/add more than one frame at once
 #
-# yellow v2-labels don't vanisch when saving
+# better open function
 #
-# better open function, include directorys in filelist
-#   
 # ...
 #
 # doing changes automatically to all selected files
@@ -35,16 +35,20 @@ use vars qw/$tktag $VERSION %element %var/;
 
 $VERSION="0.15";
 
-$var{dir}= shift || "/mp3/unsorted";
-$var{v2specent}={TIT2=>{name=>"Song"}, TPE1=>{name=>"Artist"}, TALB=>{name=>"Album"}};
+$var{dir}= shift || "./"; #/mp3/unsorted";
+$var{v2specent}={TIT2=>{name=>"Song"}, TPE1=>{name=>"Artist"},
+		 TALB=>{name=>"Album"}};
 $var{filter}="";
 $var{fnformat} = "%a - %s.mp3";
+$var{autoinfo} = ["ID3v2","ID3v1","filename"];
 formatstr($var{fnformat});
 
 $tktag = MainWindow->new(); #main window
 create_window();
 
-&load_filelist;
+#&load_filelist;
+    &scan_dir;
+    &filter_and_show;
 
 MainLoop;
 
@@ -54,18 +58,25 @@ exit 0;
 
 
 ###### tk subs
+sub key_bindings {
+  $tktag->bind('<Control-U>'=>\&use_ucase);
+  $tktag->bind('<Control-u>'=>\&use_ucase_first);
+  $tktag->bind('<Control-l>'=>\&use_lcase);
+  $tktag->bind('<Control-space>'=>\&use_spaces);
+  $tktag->bind('<Control-S>'=>\&save);
+  $tktag->bind('<Control-f>'=>\&autosetfilename);
+
+  $tktag->bind('<Control-n>'=> 
+	       sub {
+		 $element{filelist}->activate($element{filelist}
+					      ->index("active")+1);
+		 &select; });
+}
 
 sub create_window {
   my ($l);
 
-  $tktag->bind('<Control-U>'=>\&ucase);
-  $tktag->bind('<Control-u>'=>\&ucase_first);
-  $tktag->bind('<Control-l>'=>\&lcase);
-  $tktag->bind('<Control-S>'=>\&save);
-  $tktag->bind('<Control-n>'=>sub {
-		 $element{filelist}->activate($element{filelist}->index("active")+1);
-		 &select;
-	       });
+  &key_bindings;
 
   $element{leftFrame}  = $tktag->Frame();
   $element{rightFrame} = $tktag->Frame();
@@ -75,11 +86,12 @@ sub create_window {
   $element{menu} = create_menu($tktag);
 
   # special fonts
-  $tktag->fontCreate('C_big', -family => 'courier', -weight => 'bold', -size => 18);
+  $tktag->fontCreate('C_big', -family => 'courier', -weight => 'bold',
+		     -size => 18);
 
   # create Filelist
-  $element{filelist} = $element{leftFrame}->Scrolled("Listbox", -width=>25, 
-						     -selectmode=>"extended", 
+  $element{filelist} = $element{leftFrame}->Scrolled("Listbox", -width=>25,
+						     -selectmode=>"extended",
 						     -scrollbars=>"osre",
 						     -takefocus=>1,
 						     -exportselection=>0);
@@ -87,7 +99,8 @@ sub create_window {
   $element{filelist}->bind("<Key-Return>" => \&select);
   $var{simple}=1;
   $element{filelist}->bind("<1>" => \&check_multi);
-  $element{filelist}->bind("<Control-a>" => [$element{filelist},'selectionSet',"0","end"]);
+  $element{filelist}->bind("<Control-a>" => [$element{filelist},
+					     'selectionSet',"0","end"]);
   my $filter=$element{leftFrame}->Frame();
   my $cbline=$filter->Frame();
   my $illine=$filter->Frame();
@@ -103,77 +116,97 @@ sub create_window {
 		       -variable => \$var{filter_inv},
 		       -command  => \&filter_and_show,
 		       -relief   => 'flat')->pack(-side=>"left");
-  $illine->Label(-textvariable=>\$var{visiblefiles}, -relief=>"sunken", width=>5)
-    ->pack(-side=>"left", -anchor=>"e");
+  $illine->Label(-textvariable=>\$var{visiblefiles}, -relief=>"sunken",
+		 width=>5)->pack(-side=>"left", -anchor=>"e");
   $cbline->pack(-side=>"top");
   $l=$filter->Entry(-textvariable=>\$var{filter}, -width=>25)->pack(-side=>"top");
   $l->bind("<FocusOut>" => \&filter_and_show);
   $l->bind("<KeyPress-Return>" => \&filter_and_show);
   $illine->pack(-side=>"top");
-  $element{rightFrameMul}->Label(-text=>"Options for automatic processing of serveral files")
+  $element{rightFrameMul}->Label(-text=>"Options for automatic processing ".
+				 "of serveral files")
     ->pack(-side=>"top", -expand=>1, -fill=>"x");
   # create filename-area
-  my $fn1area = $element{rightFrame}->Frame();
+  my $fn1area = $element{rightFrame}->Frame(Name=>"fnframe");
   my $fn2area = $element{rightFrame}->Frame();
-  $element{filenamelabel} = $fn1area->Label(-text=>"Filename:")->pack(-side=>"left", anchor=>"w");
+  $element{filenamelabel} = $fn1area->Label(-text=>"Filename:")
+    ->pack(-side=>"left", anchor=>"w");
+  $var{bgcolor}=$element{filenamelabel}->cget("-background");
   $l=$fn1area->Entry(-textvariable=>\$var{filename}, -validate=>"key",
 		 -vcmd=>val_fn($element{filenamelabel}))
     ->pack(-side=>"left", -fill=>"x", -expand=>"yes", -anchor=>"w");
-  $l->bind('<Control-space>'=>\&spaces);
 
-  $fn1area->Button(-text=>"Save changes", -command=>\&save)->pack(-side=>"left", -anchor=>"w");
+  $fn1area->Button(-text=>"Save changes", -command=>\&save)
+    ->pack(-side=>"left", -anchor=>"w");
   $element{setfilename} = $fn2area->Menubutton(qw/-underline 0 -relief raised/,
-					       -text => "Set Filename  --", -direction => "below");
+					       -text => "Set Filename  --",
+					       -direction => "below");
   $element{setfilename}->configure(-menu => $element{setfilename}->menu);
-  $element{setfilename}->command(-label => "from ID3v1 Tag", -command=>[\&setfilename, "ID3v1"]);
-  $element{setfilename}->command(-label => "from ID3v2 Tag", -command=>[\&setfilename, "ID3v2"]);
+  $element{setfilename}->command(-label => "from ID3v1 Tag",
+				 -command=>[\&setfilename, "ID3v1"]);
+  $element{setfilename}->command(-label => "from ID3v2 Tag",
+				 -command=>[\&setfilename, "ID3v2"]);
   $element{setfilename}->pack(-side=>"left", anchor=>"n", -padx=>15);
 
   $element{setid3v1} = $fn2area->Menubutton(qw/-underline 0 -relief raised/,
-					       -text => "Set ID3v1  --", -direction => "below");
+					       -text => "Set ID3v1  --",
+					    -direction => "below");
   $element{setid3v1}->configure(-menu => $element{setid3v1}->menu);
-  $element{setid3v1}->command(-label => "from Filename");
-  $element{setid3v1}->command(-label => "from ID3v2 Tag");
+  $element{setid3v1}->command(-label => "from Filename",
+			      -command=>[\&copyfntov1]);
+  $element{setid3v1}->command(-label => "from ID3v2 Tag",
+			      -command=>[\&copyv2tov1]);
   $element{setid3v1}->pack(-side=>"left", anchor=>"n", -padx=>15);
 
   $element{setid3v2} = $fn2area->Menubutton(qw/-underline 0 -relief raised/,
-					       -text => "Set ID3v2  --", -direction => "below");
+					       -text => "Set ID3v2  --",
+					    -direction => "below");
   $element{setid3v2}->configure(-menu => $element{setid3v2}->menu);
-  $element{setid3v2}->command(-label => "from Filename");
-  $element{setid3v2}->command(-label => "from ID3v1 Tag");
+  $element{setid3v2}->command(-label => "from Filename",
+			      -command=>[\&copyfntov2]);
+  $element{setid3v2}->command(-label => "from ID3v1 Tag",
+			      -command=>\&copyv1tov2);
   $element{setid3v2}->pack(-side=>"left", anchor=>"n", -padx=>15);
 
   $element{removebutton} = $fn2area->Menubutton(qw/-underline 0 -relief raised/,
-					       -text => "Remove  --", -direction => "below");
+					       -text => "Remove  --",
+						-direction => "below");
   $element{removebutton}->configure(-menu => $element{removebutton}->menu);
-  $element{removebutton}->command(-label => "File", -command=>sub{
+  $element{removebutton}->command(-label => "File", 
+				  -command=>sub{
 				    $var{filename}="";
-				  $element{filenamelabel}->configure(-background=>"red");});
-  $element{removebutton}->command(-label => "ID3v1 Tag", -command=>sub{
+				    $element{filenamelabel}
+				      ->configure(-background=>"red");});
+  $element{removebutton}->command(-label => "ID3v1 Tag",
+				  -command=>sub{
 				    if (exists $var{v1}) {
 				      &remove_id3v1;
-				      $element{v1caption}->configure(-background=>"red");}});
-  $element{removebutton}->command(-label => "ID3v2 Tag", -command=>sub{
+				      $element{v1caption}
+					->configure(-background=>"red");}});
+  $element{removebutton}->command(-label => "ID3v2 Tag",
+				  -command=>sub{
 				    if (exists $var{v2}) {
 				      &remove_id3v2;
-				      $element{v2caption}->configure(-background=>"red");}});
+				      $element{v2caption}
+					->configure(-background=>"red");}});
   $element{removebutton}->pack(-side=>"left", anchor=>"n", -padx=>15);
 
   # create ID3v1 area
-  my $v1area = $element{rightFrame}->Frame();
+  my $v1area = $element{rightFrame}->Frame(Name=>"v1frame");
   my $v1caption = $v1area->Frame(-background=>"red");
   my $v1labels = $v1area->Frame();
   my $v1entries = $v1area->Frame();
   my $v2apic = $v1area->Frame();
   my $a=0;
-  $element{v1caption}=$v1caption->Label(-text=>"ID3v1.1", -font=>"C_big", 
+  $element{v1caption}=$v1caption->Label(-text=>"ID3v1.1", -font=>"C_big",
 					-background=>"red", -relief=>"ridge")
     ->pack(-side=>"top", -anchor=>"c", -expand=>"yes", -fill=>"x");
   $l = $v1labels->Label(-text=>"Song:")->pack(-side=>"top", -anchor=>"e");
-  $v1entries->Entry(-textvariable=>\$var{v1song}, -width=>30, 
+  $v1entries->Entry(-textvariable=>\$var{v1song}, -width=>30,
 		    -validate=>"key", -vcmd=>val_text($l,30))
     ->pack(-side=>"top", -anchor=>"w");
-  $l = $v1labels->Label(-text=>"Artist:")->pack(-side=>"top", -anchor=>"e", -pady=>2);  
+  $l = $v1labels->Label(-text=>"Artist:")->pack(-side=>"top", -anchor=>"e",
+						-pady=>2);
   $v1entries->Entry(-textvariable=>\$var{v1artist}, -width=>30,
 		    -validate=>"key", -vcmd=>&val_text($l,30))
     ->pack(-side=>"top", -anchor=>"w");
@@ -181,37 +214,44 @@ sub create_window {
   $v1entries->Entry(-textvariable=>\$var{v1album}, -width=>30,
 		    -validate=>"key", -vcmd=>&val_text($l,30))
     ->pack(-side=>"top", -anchor=>"w");
-  $l = $v1labels->Label(-text=>"Comment:")->pack(-side=>"top", -anchor=>"e", -pady=>1);
+  $l = $v1labels->Label(-text=>"Comment:")->pack(-side=>"top", -anchor=>"e",
+						 -pady=>1);
   $v1entries->Entry(-textvariable=>\$var{v1comment}, -width=>30,
 		    -validate=>"key", -vcmd=>val_text($l,28))
     ->pack(-side=>"top", -anchor=>"w");
-  $element{genrelabel} = $v1labels->Label(-text=>"Genre:")->pack(-side=>"top", -anchor=>"e");
+  $element{genrelabel} = $v1labels->Label(-text=>"Genre:")->pack(-side=>"top",
+								 -anchor=>"e");
   my $genres = ["", sort @{MP3::Tag::genres()}];
   $v1entries->BrowseEntry(-variable => \$var{v1genre}, -choices => $genres, 
 			  -state=>"readonly", -browsecmd=> 
-			  sub { $element{genrelabel}->configure(-background=>"yellow");
-				$element{v1caption}->configure(-background=>"yellow");
+			  sub { $element{genrelabel}
+				  ->configure(-background=>"yellow");
+				$element{v1caption}
+				  ->configure(-background=>"yellow");
 				push @{$var{labels}}, $element{genrelabel} })
     ->pack(-side=>"top", -anchor=>"w");
   $l = $v1labels->Label(-text=>"Year:")->pack(-side=>"top", -anchor=>"e");
   $v1entries->Entry(-textvariable=>\$var{v1year}, -width=>4,
 		    -validate=>"key", -vcmd=>val_num($l,4))
     ->pack(-side=>"top", -anchor=>"w");
-  $l = $v1labels->Label(-text=>"Track:")->pack(-side=>"top", -anchor=>"e", -pady=>2);
+  $l = $v1labels->Label(-text=>"Track:")->pack(-side=>"top", -anchor=>"e",
+					       -pady=>2);
   $v1entries->Entry(-textvariable=>\$var{v1track}, -width=>4,
 		    -validate=>"key", -vcmd=>val_num($l,3))
     ->pack(-side=>"top", -anchor=>"w");
   $element{apic} = $v2apic->Photo('apic');
   $element{apic}->blank;
-  $v2apic->Label(-image=>'apic', -height=>150, -width=>180)->pack(-side=>"top", -anchor=>"center");
-  $element{apictext}=$v2apic->Label(-text=>"")->pack(-side=>"top", -anchor=>"center");
+  $v2apic->Label(-image=>'apic', -height=>150, -width=>180)
+    ->pack(-side=>"top", -anchor=>"center");
+  $element{apictext}=$v2apic->Label(-text=>"")->pack(-side=>"top",
+						     -anchor=>"center");
   $v1caption->pack(-side=>"top", -expand=>"yes", -fill=>"x");
   $v1labels->pack(-side=>"left");
   $v1entries->pack(-side=>"left");
   $v2apic->pack(-side=>"right");
 
   # ID3v2 area
-  my $v2area = $element{rightFrame}->Frame();
+  my $v2area = $element{rightFrame}->Frame(Name=>"v2frame");
   my $v2caption = $v2area->Frame();
   my $v2top = $v2area->Frame();
   my $v2right = $v2area->Frame();
@@ -221,21 +261,29 @@ sub create_window {
   my $v2entries = $v2labent->Frame();
   my $v2parea = $v2right->Frame();
   my $v2iarea = $v2right->Frame();
-  $element{v2caption}=$v2caption->Label(-text=>"ID3v2.3", -font=>"C_big", -background=>"red", -relief=>"ridge")
+  $element{v2caption}=$v2caption->Label(-text=>"ID3v2.3", -font=>"C_big",
+					-background=>"red", -relief=>"ridge")
     ->pack(-side=>"top", -anchor=>"c", -fill=>"x", -expand=>"yes");
   while (my ($fname,$val) = each %{$var{v2specent}}) {
-    $val->{label} = $v2labels->Label(-text=>$val->{name})->pack(-side=>"top", -anchor=>"e");
-    $val->{entry} = $v2entries->Entry(-textvariable=>\$var{"v2-$fname"}, -width=>40, -validate=>"key",
-		      -vcmd=>[\&val_v2,$element{v2caption},$val->{label}, $a])->pack(-side=>"top", -anchor=>"w");
+    $val->{label} = $v2labels->Label(-text=>$val->{name})->pack(-side=>"top",
+								-anchor=>"e");
+    $val->{entry} = $v2entries->Entry(-textvariable=>\$var{"v2$fname"},
+				      -width=>40, -validate=>"key",
+				      -vcmd=>[\&val_v2,$element{v2caption},
+					      $val->{label}, $a])
+      ->pack(-side=>"top", -anchor=>"w");
   }
-  $v2buttons->Button(-text=>"Add Frame", -command=>\&add_frame)->pack(-side=>"left", -anchor=>"c");
-  $v2buttons->Button(-text=>"Delete Frame(s)", -command=>\&del_frame)->pack(-side=>"left", -anchor=>"c");
-  $element{frames} = $v2iarea->Scrolled("Listbox", -scrollbars=>"re", -width=>"8", 
+  $v2buttons->Button(-text=>"Add Frame", -command=>\&add_frame)
+    ->pack(-side=>"left", -anchor=>"c");
+  $v2buttons->Button(-text=>"Delete Frame(s)", -command=>\&del_frame)
+    ->pack(-side=>"left", -anchor=>"c");
+  $element{frames} = $v2iarea->Scrolled("Listbox", -scrollbars=>"re", -width=>"8",
 					-selectmode=>"browse", -takefocus=>1)
     ->pack(-side=>"left");
   $element{frames}->bind("<Double-1>" => \&show_frame);
   $element{frames}->bind("<Key-Return>" => \&show_frame);
-  $v2parea->Label(-textvariable=>\$var{longname})->pack(-side=>"top", -anchor=>"n", -pady=>5);
+  $v2parea->Label(-textvariable=>\$var{longname})->pack(-side=>"top",
+							-anchor=>"n", -pady=>5);
   $element{frameinfo} = $v2parea;
   $v2labels->pack(-side=>"left");
   $v2entries->pack(-side=>"left");
@@ -254,33 +302,41 @@ sub create_window {
   # pack right Frame
   $fn1area->pack(-side=>"top", -anchor=>"nw", -expand=>"yes", -fill=>"x");
   $fn2area->pack(-side=>"top", -anchor=>"nw", -expand=>"yes", -fill=>"x");
-  $v1area->pack(-side=>"top", -anchor=>"nw", -expand=>"yes", -fill=>"x", -pady=>10);
+  $v1area->pack(-side=>"top", -anchor=>"nw", -expand=>"yes", -fill=>"x",
+		-pady=>10);
   $v2area->pack(-side=>"top", -anchor=>"nw", -expand=>"yes", -fill=>"x");
   $v2parea->pack(-side=>"top", -anchor=>"nw", -expand=>"yes", -fill=>"x");
 
   # pack main window
-  $element{menu}->pack(-side=>"top", -fill=>"x", anchor=>"nw");
-  $element{leftFrame}->pack(-side=>"left", -fill=>"y", anchor=>"w");
-  $element{rightFrame}->pack(-side=>"left",-fill=>"both",-expand=>"yes", anchor=>"nw");
+  $element{menu}->pack(-side=>"top", -fill=>"x", -anchor=>"nw");
+  $element{leftFrame}->pack(-side=>"left", -fill=>"y", -anchor=>"w");
+  $element{rightFrame}->pack(-side=>"left",-fill=>"both",-expand=>"yes",
+			     -anchor=>"nw");
 
   #prepare open dialog window
-  $element{open} = $tktag->DialogBox(-title=>"Open directory", -buttons=>["Open", "Cancel"]);
+  $element{open} = $tktag->DialogBox(-title=>"Open directory",
+				     -buttons=>["Open", "Cancel"]);
   $element{open}->add("Label", -text=>"Directory:")->pack();
   $element{open}->add("Entry", -width=>35, -textvariable=>\$var{dir})->pack();
 
-  $element{fnformat} = $tktag->DialogBox(-title=>"Set filename format", -buttons=>["Set", "Cancel"]);
+  $element{fnformat} = $tktag->DialogBox(-title=>"Set filename format",
+					 -buttons=>["Set", "Cancel"]);
   $element{fnformat}->add("Label", -text=>"Format")->pack();
-  $element{fnformat}->add("Entry", -width=>35, -textvariable=>\$var{fnformat})->pack();
-  $element{fnformat}->add("Label", -text=>"%s - Song       %l - Album\n%a - Artist".
-			  "     %t - Track\n %c - Comment    %g - Genre\n %y - Year".
-			  "\nSee also README file")->pack();
+  $element{fnformat}->add("Entry", -width=>35, -textvariable=>\$var{fnformat})
+    ->pack();
+  $element{fnformat}->add("Label", 
+			  -text=>"%s - Song       %l - Album\n%a - Artist".
+			         "     %t - Track\n %c - Comment    ".
+			         "%g - Genre\n %y - Year".
+			         "\nSee also README file")->pack();
 
   $element{addelframe} = $tktag->DialogBox(-buttons=>["Ok", "Cancel"]);
   $element{addelabel} = $element{addelframe}->add("Label")
     ->pack();
-  $element{addelistbox} = $element{addelframe}->add("Scrolled", "Listbox", 
+  $element{addelistbox} = $element{addelframe}->add("Scrolled", "Listbox",
 						 -scrollbars=>"osre", -width=>50)
     ->pack(-fill=>"both", -expand=>1);
+
 }
 
 
@@ -380,6 +436,7 @@ sub tk_warning {
 ####### file subs
 
 sub load_filelist {
+  $element{open}->configure(-title=>"Open directory");
   my $answer = $element{open}->Show;
   if ($answer eq "Open") {
     $var{dir} =~ s!/$!!;
@@ -420,9 +477,12 @@ sub filter_and_show {
     if (exists $val->{isDir}) {
       push @dirs, "[$name]";
     } else {
-      if (!$var{v1filter} || (!$var{filter_inv} && $val->{ID3v1}) || ($var{filter_inv} && !$val->{ID3v1})) {
-	if (!$var{v2filter} || (!$var{filter_inv} && $val->{ID3v2}) || ($var{filter_inv} && !$val->{ID3v2})) {
-	  if (!$filter || (!$var{filter_inv} && $name =~ $filter) || ($var{filter_inv} && !($name =~ $filter))) {
+      if (!$var{v1filter} || (!$var{filter_inv} && $val->{ID3v1})
+	  || ($var{filter_inv} && !$val->{ID3v1})) {
+	if (!$var{v2filter} || (!$var{filter_inv} && $val->{ID3v2})
+	    || ($var{filter_inv} && !$val->{ID3v2})) {
+	  if (!$filter || (!$var{filter_inv} && $name =~ $filter)
+	      || ($var{filter_inv} && !($name =~ $filter))) {
 	    push @files, $name;
 	  }
 	}
@@ -451,6 +511,7 @@ sub select {
   $var{mp3}->close if exists $var{mp3};
   delete $var{v1};
   delete $var{v2};
+  $element{filenamelabel}->configure(-background=>$var{bgcolor});
   $var{mp3} = MP3::Tag->new($filename);
   $var{mp3}->getTags;
 
@@ -462,7 +523,7 @@ sub select {
   $var{longname}="";
   if (exists $var{labels}) {
     while (my $label = shift @{$var{labels}}) {
-      $label->configure(-background=>"#d9d9d9");
+      $label->configure(-background=>$var{bgcolor});
     }
   }
 
@@ -485,10 +546,10 @@ sub select {
     my $frames = $var{v2}->getFrameIDs;
     while (my ($fname, $val) = each %{$var{v2specent}}) {
       if (exists $frames->{$fname}) {
-	$var{"v2-$fname"} = $var{v2}->getFrame($fname);
+	$var{"v2$fname"} = $var{v2}->getFrame($fname);
 	$val->{entry}->bind('<FocusOut>' => v2_specent_change($fname));
       } else {
-	$var{"v2-$fname"} = "";
+	$var{"v2$fname"} = "";
 	$val->{entry}->bind('<FocusOut>' => v2_specent_create($fname));
       }
     }
@@ -504,7 +565,7 @@ sub select {
     show_frame($frames[0],1);
   } else {
     while (my ($fname, $val) = each %{$var{v2specent}}) {
-      $var{"v2-$fname"}="";
+      $var{"v2$fname"}="";
       $val->{entry}->bind('<FocusOut>' => v2_specent_create($fname));
     }
     $element{v2caption}->configure(-background=>"red");
@@ -517,10 +578,10 @@ sub select {
 sub v2_specent_change {
   my $fname = shift;
   return sub {
-    $var{v2}->change_frame($fname, $var{"v2-$fname"});
+    $var{v2}->change_frame($fname, $var{"v2$fname"});
     if (exists $var{current_frame} && $var{current_frame} eq $fname) {
       $var{frame_Text}->delete("0.1", "end");
-      $var{frame_Text}->insert("0.1", $var{"v2-$fname"});
+      $var{frame_Text}->insert("0.1", $var{"v2$fname"});
     }
   };
 }
@@ -528,14 +589,15 @@ sub v2_specent_change {
 sub v2_specent_create {
   my $fname = shift;
   return sub {
-    return if $var{"v2-$fname"} eq "";
+    return if $var{"v2$fname"} eq "";
     $var{v2}=$var{mp3}->newTag("ID3v2") unless exists $var{v2};
-    $var{v2}->add_frame($fname, $var{"v2-$fname"});
+    $var{v2}->add_frame($fname, $var{"v2$fname"});
     my @allframes = $element{frames}->get(0,"end");
     push @allframes, $fname;
     $element{frames}->delete(0,"end");
     $element{frames}->insert("end", sort @allframes);
-    $var{v2specent}->{$fname}->{entry}->bind('<FocusOut>' => v2_specent_change($fname));
+    $var{v2specent}->{$fname}->{entry}->bind('<FocusOut>' =>
+					     v2_specent_change($fname));
   };
 }
 
@@ -555,6 +617,7 @@ sub show_frame {
   my $info;
   $var{current_frame} = $fname;
   ($info, $var{longname}) = $var{v2}->getFrame($fname);
+  (undef, $var{restrinp}) = $var{v2}->what_data($fname);
   if (ref $info) {
     my ($key, $value);
     foreach $key (sort keys %$info) {
@@ -562,31 +625,73 @@ sub show_frame {
       my $f = $element{frameinfo}->Frame();
       push @{$var{fpack}}, $f;
       if ($key =~ s/^_//) {
-	$f->Label(-text=>"$key:", -justify=>"left")->pack(-side=>"left", -anchor=>"w");
+	my $l=$f->Label(-text=>"$key:", -justify=>"left")
+	  ->pack(-side=>"left", -anchor=>"w");
 	my $b=$f->Menubutton(qw/-underline 0 -relief raised/,
-		       -text => "Data of " .length($value) ." Bytes  --", -direction => "below");
+			     -text => "Data of " .length($value) .
+			     " Bytes  --", -direction => "below");
 	$b->configure(-menu => $b->menu);
-	$b->command(-label => "Save Data");
-	$b->command(-label => "Load Data");
-	$b->command(-label => "View Data");
+	$var{"data_$key"}=$value;
+	$b->command(-label => "Save Data", -command=>[\&save_data,$key]);
+	$b->command(-label => "Load Data", -command=>[\&load_data,$key,$b, $l]);
+	$b->command(-label => "View Data", -command=>[\&view_data,$key]);
 	$b->pack(-side=>"left", anchor=>"n");
       } else {
-	my $l=$f->Label(-text=>"$key:", -justify=>"left")->pack(-side=>"left", -anchor=>"w");
-	$var{"frame_$key"} = $f->Text(-height=>2, -width=>40, -wrap=>"word")
-	  ->pack(-side=>"right", -anchor=>"e");
-	push @{$var{fpack}}, $var{"frame_$key"};
-	$var{"frame_$key"}->insert("0.0", $value);
-	$var{"frame_$key"}->bind('<Key>'=>[\&yyy, $l]);
+	my $l=$f->Label(-text=>"$key:", -justify=>"left")
+	  ->pack(-side=>"left", -anchor=>"w");
+	if (exists $var{restrinp}->{$key}) {
+	  my $state="readonly";
+	  if (exists $var{restrinp}->{$key}->{"_FREE"}) {
+	    $state="normal";
+	    delete $var{restrinp}->{$key}->{"_FREE"};
+	  }
+	  $var{"frame_$key"}=$value;
+	  my @inps=sort keys %{$var{restrinp}->{$key}}; 
+	  $f->BrowseEntry(-variable => \$var{"frame_$key"}, -choices => \@inps,
+			  -state=>$state, -width=>37, -browsecmd=>
+			  sub { $l->configure(-background=>"yellow");
+				$element{v2caption}
+				  ->configure(-background=>"yellow");})
+	    ->pack(-side=>"right", -anchor=>"e");
+
+	} else {
+	  $var{"frame_$key"} = $f->TextUndo(-height=>2, -width=>40, -wrap=>"word")
+	    ->pack(-side=>"right", -anchor=>"e");
+	  $var{"frame_$key"}->insert("0.0", $value);
+	  $var{"frame_$key"}->bind('<Double-1>' =>
+				   sub{ $var{"frame_$key"}
+					  ->configure(-disable=>1);});
+	  push @{$var{fpack}}, $var{"frame_$key"};
+	  $var{"frame_$key"}->bind('<Key>'=>[\&yyy, $l]);
+	}
       }
       $f->pack(-side=>"top", -anchor=>"w", -fill=>"x", -expand=>"yes");
     }
   } else {
-    $var{frame_Text} = $element{frameinfo}->Text(-height=>2, -width=>40, -wrap=>"word")
-      ->pack(-side=>"top", -anchor=>"n");
-    $var{frame_Text}->insert("0.0", $info);
-    push @{$var{fpack}}, $var{frame_Text}; 
-    if (exists $var{v2specent}->{$fname}) {
-      $var{frame_Text}->bind('<Key>'=>[\&xxx, $fname]);
+    if (exists $var{restrinp}->{Text}) {
+      my $state="readonly";
+      if (exists $var{restrinp}->{Text}->{"_FREE"}) {
+	$state="normal";
+	delete $var{restrinp}->{Text}->{"_FREE"};
+      }
+      $var{"frame_Text"}=$info;
+      my @inps=sort keys %{$var{restrinp}->{Text}};
+      push @{$var{fpack}},$element{frameinfo}->BrowseEntry(
+				       -variable => \$var{"frame_Text"},
+				       -choices => \@inps, -width=>37,
+				       -state=>$state, -browsecmd=>
+				       sub { $element{v2caption}
+					       ->configure(-background=>"yellow")})
+	->pack(-side=>"top", -anchor=>"n");
+    } else {
+      $var{frame_Text} = $element{frameinfo}->TextUndo(-height=>2, -width=>40,
+						       -wrap=>"word")
+	->pack(-side=>"top", -anchor=>"n");
+      $var{frame_Text}->insert("0.0", $info);
+      push @{$var{fpack}}, $var{frame_Text}; 
+      if (exists $var{v2specent}->{$fname}) {
+	$var{frame_Text}->bind('<Key>'=>[\&xxx, $fname]);
+      }
     }
   }
 }
@@ -594,14 +699,20 @@ sub show_frame {
 sub save_frameinfo {
   # save last info
   return unless exists $var{current_frame};
-  my $format = $var{v2}->what_data($var{current_frame});
+  my ($format, $resinp) = $var{v2}->what_data($var{current_frame});
   my @data=();
   foreach (@$format) {
     if (/^_/) {
-      #warn "Saving changes of binary data not supported yet.";
+      push @data, $var{"data$_"};
       next;
     }
-    my $d = $var{"frame_$_"}->get("0.1","end");
+    my $d;
+    if ($var{"frame_$_"} =~ /Text/) {
+      $d= $var{"frame_$_"}->get("0.1","end");
+    } else {
+      $d= $var{"frame_$_"};
+      $d= $resinp->{$_}->{$d} if (defined $resinp->{$_}->{$d});
+    };
     chomp $d;
     $d =~ s/ +$//;
     push @data, $d; 
@@ -613,7 +724,7 @@ sub xxx {
   my ($textobject, $fname) = @_;
   my $text = $textobject->get("0.1","end");
   chomp($text);
-  $var{"v2-$fname"} = $text;
+  $var{"v2$fname"} = $text;
   $var{v2specent}->{$fname}->{label}->configure(-background=>"yellow");
   $element{v2caption}->configure(-background=>"yellow");
 }
@@ -648,7 +759,7 @@ sub save {
   if ($var{filename} ne $var{oldfilename}) {
     return 0 unless change_filename();
   }
-
+  $element{filenamelabel}->configure(-background=>$var{bgcolor});
   #save changes of ID3v1 tag
   if ($element{v1caption}->cget("-background") eq "yellow") {
     my @fields;
@@ -670,25 +781,33 @@ sub save {
     $var{v2}=$var{mp3}->newTag("ID3v2") unless exists $var{v2};
     save_frameinfo();
     while (my ($fname, $val)=each %{$var{v2specent}}) {
-      if ($var{"v2-$fname"} ne "" && $val->{label}->cget("-background") eq "yellow") {
-	my $d=$var{"v2-$fname"};
+      if ($var{"v2$fname"} ne "" &&
+	  $val->{label}->cget("-background") eq "yellow") {
+	my $d=$var{"v2$fname"};
 	$d=~s/ +$//;
 	if (defined $var{v2}->getFrame($fname)) {
 	  $var{v2}->change_frame($fname, $d);
 	} else {
 	  $var{v2}->add_frame($fname, $d);
 	}
+	$val->{label}->configure(-background=>$var{bgcolor});
       }
     }
     $var{v2}->write_tag;
     $element{v2caption}->configure(-background=>"green");
-  } elsif (exists $var{v2} && $element{v2caption}->cget("-background") eq "red") {
+    foreach my $v2e ( @{$var{fpack}}) {
+      foreach ($v2e->children) {
+	$_->configure(-background=>$var{bgcolor}) if /Label/;
+      }
+    }
+  } elsif (exists $var{v2} &&
+	   $element{v2caption}->cget("-background") eq "red") {
     $var{v2}->remove_tag;
     delete $var{v2};
   }
   if (exists $var{labels}) {
     while (my $label = shift @{$var{labels}}) {
-      $label->configure(-background=>"#d9d9d9");
+      $label->configure(-background=>$var{bgcolor});
     }
   }
 }
@@ -696,7 +815,8 @@ sub save {
 sub change_filename {
   my $success = 0;
   if ($var{filename} eq "") {
-    if (tk_question("Filename is empty. Do you want to delete $var{oldfilename}?")) {
+    if (tk_question("Filename is empty. Do you want to ".
+		    "delete $var{oldfilename}?")) {
       $var{mp3}->close;
       if (unlink $var{dir}.$var{oldfilename}) {
 	remove_id3v1();
@@ -710,15 +830,15 @@ sub change_filename {
 	tk_warning("Cannot delete file.");
       }
     }
-    goto out;
   } elsif (-e $var{dir}.$var{filename}) {
     if (-f _) {
-      if (tk_question("Files $var{filename} exists. Do you want to overwrite it?")) {
+      if (tk_question("Files $var{filename} exists. Do you want".
+		      " to overwrite it?")) {
 	goto re;
       }
     } else {
-      tk_warning("$var{filename} exists and it isn't a plain file. Can't rename $var{oldfilename}!");
-      goto out;
+      tk_warning("$var{filename} exists and it isn't a plain file.".
+		 " Can't rename $var{oldfilename}!");
     }
   } else {
   re:
@@ -735,11 +855,8 @@ sub change_filename {
       $success = 1;
     } else {
       tk_warning("Couldn't rename $var{oldfilename} to $var{filename}");
-      goto out;
     }
   }
- out:
-  $element{filenamelabel}->configure(-background=>"#d9d9d9") if $success;
   return $success;
 }
 
@@ -751,7 +868,7 @@ sub remove_id3v1 {
 
 sub remove_id3v2 {
   for (keys %{$var{v2specent}}) {
-    $var{"v2-$_"} = "";
+    $var{"v2$_"} = "";
   }
   $element{frames}->delete("0","end");
   foreach (@{$var{fpack}}) {
@@ -809,7 +926,7 @@ sub del_frame {
       show_frame($element{frames}->get("active"),1);
     }
     if (exists $var{v2specent}->{$fname}) {
-      $var{"v2-$fname"}="";
+      $var{"v2$fname"}="";
       $var{v2specent}->{$fname}->{label}->configure(-background=>"yellow");
     }
   }
@@ -820,39 +937,57 @@ sub check_multi {
   my @sel = $element{filelist}->curselection();
   if ($#sel >0 && $var{simple}) {
     $element{rightFrame}->packForget;
-    $element{rightFrameMul}->pack(-side=>"left",-fill=>"both",-expand=>"yes", anchor=>"nw");
+    $element{rightFrameMul}->pack(-side=>"left",-fill=>"both",
+				  -expand=>"yes", -anchor=>"nw");
     $var{simple}=0;
   } elsif ($#sel == 0 && ! $var{simple}) {
     $element{rightFrameMul}->packForget;
-    $element{rightFrame}->pack(-side=>"left",-fill=>"both",-expand=>"yes", anchor=>"nw");
+    $element{rightFrame}->pack(-side=>"left",-fill=>"both",
+			       -expand=>"yes", -anchor=>"nw");
     $var{simple}=1;
   }
 }
 
 sub setfilename {
-  my $tag = shift;
+  my $tag = shift; # may be 'ID3v1', 'ID3v2' or 'filename'
   $tag =~ s/ID3//;
-  return if $tag ne "v1" || !exists $var{v1};
+  return undef unless exists $var{$tag} || $tag eq "filename";
   my $new = $var{setfilename}->{stencil};
   my $i=0;
   foreach my $part (@{$var{setfilename}->{details}}) {
     my $code=$part->{tag};
-    my $txt = $var{$tag}->$code;
+    if ($tag eq "v2") {
+      $code =~ s/song/TIT2/ ||
+      $code =~ s/album/TALB/ ||
+      $code =~ s/artist/TPE1/;
+    }
+    my $txt="";
+    if ($tag eq "filename") {
+      if ($code eq "song" || $code eq "artist" ||
+	  $code eq "album" || $code eq "track") {
+	$txt = $var{mp3}->{filename}->$code($var{dir}.$var{filename});
+      }
+    } else {
+      $txt = $var{"$tag$code"};
+    }
     $txt =~ s/ *$//;
-    $txt = substr $txt, 0, $part->{length} if exists $part->{length} && 
+    $txt = substr $txt, 0, $part->{length} if exists $part->{length} &&
       ((! exists $part->{fill}) || exists  $part->{precise} );
-    $txt = $part->{fill} x ($part->{length}-length($txt)) . $txt if exists $part->{fill};
+    $txt = $part->{fill} x ($part->{length}-length($txt)) . $txt
+      if exists $part->{fill};
     $new =~ s/%$i/$txt/;
     $i++;
   }
   $new =~ s/ /_/g if exists $var{setfilename}->{nospaces};
   $var{filename}=$new;
   $element{filenamelabel}->configure(-background=>"yellow");
+  return 1;
 }
 
 sub formatstr {
   my $format = shift;
-  my %tags = (s=>"song", a=>"artist", l=>"album", y=>"year", g=>"genre", t=>"track");
+  my %tags = (s=>"song", a=>"artist", l=>"album", y=>"year",
+	      g=>"genre", t=>"track");
   my @fmt;
 
   while ($format =~ /%([0-9]*)(?:(!)?:(.))?([salygt])/g) {
@@ -869,75 +1004,233 @@ sub formatstr {
   $var{setfilename}->{details}=\@fmt;
 }
 
-sub ucase {
- my $element=shift;
+sub element_change {
+  my $element = shift;
 
+  if ($element->PathName =~/v1/) {
+    $element{v1caption}->configure(-background=>"yellow");
+  } elsif ($element->PathName =~/v2/) {
+    $element{v2caption}->configure(-background=>"yellow");
+  } elsif ($element->PathName =~/fn/) {
+    $element{filenamelabel}->configure(-background=>"yellow");
+  }
+}
+
+sub use_ucase {
+ my $element=shift;
  if ($element =~ /Entry/) {
    my $evar = $element->cget(-textvariable);
+   my $ovar = $$evar;
    $$evar =~ tr/[a-z]/[A-Z]/;
    $$evar =~ s/\.MP3$/.mp3/;
+   if ($ovar ne $$evar) {
+     element_change($element);
+   }
  } elsif ($element =~ /Text/) {
    my $text = $element->get("0.1","end");
    chomp $text;
-   $text =~ tr/[a-z]/[A-Z]/;
-   $element->delete("0.1","end");
-   $element->insert("end",$text);
+   return if $text eq "";
+   if ($text =~ tr/[a-z]/[A-Z]/) {
+     element_change($element);
+     $element->delete("0.1","end");
+     $element->insert("end",$text);
+   }
  }
 }
 
-sub lcase {
+sub use_lcase {
  my $element=shift;
 
  if ($element =~ /Entry/) {
    my $evar = $element->cget(-textvariable);
    return if $$evar eq "";
-   $$evar =~ tr/[A-Z]/[a-z]/;
+   if ($$evar =~ tr/[A-Z]/[a-z]/) {
+     element_change($element);
+   }
  } elsif ($element =~ /Text/) {
    my $text = $element->get("0.1","end");
    chomp $text;
    return if $text eq "";
-   $text =~ tr/[A-Z]/[a-z]/;
-   $element->delete("0.1","end");
-   $element->insert("end",$text);
+   if ($text =~ tr/[A-Z]/[a-z]/) {
+     element_change($element);
+     $element->delete("0.1","end");
+     $element->insert("end",$text);
+   }
+ }
+}
+
+sub use_ucase_first {
+ my $element=shift;
+
+ if ($element =~ /Entry/) {
+   my $evar = $element->cget(-textvariable);
+   return if $$evar eq "";
+   my $ovar=$$evar;
+   $$evar=ucase_first($$evar);
+   if ($ovar ne $$evar) {
+     element_change($element);
+   }
+ } elsif ($element =~ /Text/) {
+   my $text = $element->get("0.1","end");
+   chomp $text;
+   return if $text eq "";
+   my $otext = ucase_first($text);
+   if ($otext ne $text) {
+     $element->delete("0.1","end");
+     $element->insert("end",$otext);
+     element_change($element);
+   }
  }
 }
 
 sub ucase_first {
- my $element=shift;
+  my $text=shift;
+  $text =~ s/(\w+)/\L\u$1/gm;
+  $text =~ s/('[A-Z])/\L$1/g; #');
+  $text =~ s/\.Mp3$/.mp3/;
+  return $text;
+}
 
+sub use_spaces {
+ my $element=shift;
  if ($element =~ /Entry/) {
    my $evar = $element->cget(-textvariable);
    return if $$evar eq "";
-   $$evar =~ s/(\w+)/\L\u$1/g;
-   $$evar =~ s/('[A-Z])/\L$1$2/g;
-   $$evar =~ s/\.Mp3$/.mp3/;
- } elsif ($element =~ /Text/) {
-   my $text = $element->get("0.1","end");
-   chomp $text;
-   return if $text eq "";
-   $text =~ s/(\w+)/\L\u$1/gm;
-   $text =~ s/('[A-Z])/\L$1$2/g;
-   $element->delete("0.1","end");
-   $element->insert("end",$text);
+   my $ovar=$$evar;
+   $$evar=spaces($$evar);
+   if ($ovar ne $$evar) {
+     element_change($element);
+   }
  }
 }
 
 sub spaces {
- my $element=shift;
- if ($element =~ /Entry/) {
-   my $evar = $element->cget(-textvariable);
-   return if $$evar eq "";
-   $$evar =~ s/%20/ /g;
-   if ($$evar =~ /_/) {
-     $$evar =~ s/_/ /g;
-   } else {
-     $$evar =~ s/ /_/g;
-   }
- }
+  my $text=shift;
+  $text =~ s/%20/_/g;
+  if ((($text =~ tr/././) >2)) {
+    $text =~ s/\./ /g;
+    $text =~ s/ (mp3)$/.$1/i;
+    $text =~ s/(\w)-(\w)/$1 - $2/g;
+  } elsif ($text =~ /_/) {
+    $text =~ s/_/ /g;
+    $text =~ s/(\w)-(\w)/$1 - $2/g;
+  } else {
+    $text =~ s/ /_/g;
+    $text =~ s/_-_/-/g;
+  }
+  $text=~ s/ +/ /g;
+  return $text;
 }
+
 
 sub filename_format {
   if ( $element{fnformat}->Show eq "Set") {
     formatstr($var{fnformat});
   }
-};
+}
+
+sub view_data {
+  my $key= shift;
+  warn "Viewing of $key of $var{current_frame} not supported yet\n";
+}
+
+sub load_data {
+  my ($key, $button,$label)= @_;
+  my @types=(["All files", "*"]);
+  my $file = $tktag->getOpenFile(-filetypes => \@types);
+  if (open (LOAD, $file)) {
+    binmode LOAD;
+    local $/;
+    undef $/;
+    $var{"data_$key"}=<LOAD>;
+    close LOAD;
+    warn "Please set mime type according to new data\n";
+    $button->configure(-text => "Data of " .length($var{"data_$key"}) .
+		       " Bytes  --");
+    $label->configure(-background=>"yellow");
+    $element{v2caption}->configure(-background=>"yellow");
+  } else {
+    warn "Couldn't open $file for saving $var{current_frame}.$key";
+  }
+}
+
+sub save_data {
+  my $key= shift;
+  my @types=(["All files", "*"]);
+  my $file = $tktag->getSaveFile(-filetypes => \@types,
+			     -initialfile => 'Untitled',
+			     -defaultextension => '.dat');
+  if (open (SAVE, ">$file")) {
+    binmode SAVE;
+    print SAVE $var{"data_$key"};
+    close SAVE;
+  } else {
+    warn "Couldn't open $file for saving $var{current_frame}.$key";
+  }
+}
+
+sub copyv1tov2 {
+  my %v1tov2 = (artist=>"TPE1", album=>"TALB", song=>"TIT2", 
+	        year=>"TYER", track=>"TRCK", comment=>"COMM", genre=>"TCON");
+  return unless exists $var{v1};
+  $var{v2}=$var{mp3}->newTag("ID3v2") unless exists $var{v2};
+  my $frames = $var{v2}->getFrameIDs;
+  while (my ($v1,$v2) = each %v1tov2) {
+    next if $var{"v1$v1"} eq "";
+    my ($data, $restr) = $var{v2}->what_data($v2);
+    my @newdata;
+    if ($#{$data}==0) {
+      @newdata = ($var{"v1$v1"});
+    } else {
+      foreach (@$data) {
+	if ($_ eq "Text") {
+	  push @newdata, $var{"v1$v1"};
+	} else {
+	  push @newdata, "";
+	}
+      }
+    }
+    if (exists $frames->{$v2}) {
+      $var{v2}->change_frame($v2, @newdata);
+    } else {
+      $var{v2}->add_frame($v2, @newdata);
+      add2framelist($v2);
+    }
+    if (exists $var{v2specent}->{$v2}) {
+      $var{"v2$v2"}=$var{"v1$v1"};
+      $var{v2specent}->{$v2}->{label}->configure(-background=>"yellow");
+    }
+  }
+  $element{v2caption}->configure(-background=>"yellow");
+}
+
+sub copyv2tov1 {
+}
+
+sub copyfntov1 {
+  $var{v1}=$var{mp3}->newTag("ID3v1") unless exists $var{v1};
+  foreach (qw/song artist album track/) {
+    $var{"v1$_"}=$var{mp3}->{filename}->$_($var{dir}.$var{filename});
+  }
+}
+
+sub copyfntov2 {
+}
+
+sub add2framelist {
+  my $fname = shift;
+  my $index=0;
+  my $maxindex = $element{frames}->index("end");
+  while ($index<$maxindex && $element{frames}->get($index,$index) lt $fname) {
+    $index++;
+  }
+  $element{frames}->insert($index, $fname);
+  $element{frames}->activate($index);
+  $element{frames}->selectionSet($index);	
+}
+
+sub autosetfilename {
+  foreach (@{$var{autoinfo}}) {
+    last if setfilename($_);
+  }
+}

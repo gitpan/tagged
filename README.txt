@@ -14,8 +14,12 @@ make install   (as root)
 If you find some errors while doing this, please send me
 an email describing the problems.
 
-In the directory examples, you find 2 examples, how to use
-the module. You can also read the documentation of this
+You need to have the modules Compress::Zlib and File::Basename
+installed. If you are missing one of these (perl Makefile.PL 
+should warn you) you can find them on CPAN (www.cpan.org).
+
+In the directory examples, you find 4 examples, how to use
+the module. You can read the documentation of this
 module with 
 
 man MP3::Tag

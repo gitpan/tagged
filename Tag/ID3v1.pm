@@ -80,9 +80,10 @@ sub new {
   } else {
     $mp3obj->seek(-128,2);
     $mp3obj->read(\$buffer, 128);
+    $mp3obj->close;
   }
-  
-  if ($create || substr ($buffer,0,3) eq "TAG") {
+
+  if (exists $self->{new} || substr ($buffer,0,3) eq "TAG") {
     bless $self, $class;
     $self->readTag($buffer);
 
@@ -268,7 +269,7 @@ a given id or name.
 
 sub genres {
   # return an array with all genres, of if a parameter is given, the according genre
-  my $genre = shift;
+  my ($self, $genre) = @_;
   return \@winamp_genres unless defined $genre;
   return $winamp_genres[$genre] if $genre =~ /^\d+$/;
   my $r;
@@ -278,7 +279,7 @@ sub genres {
       last;
     }
   }
-  return $r; 
+  return $r;
 }
 
 #################

@@ -6,11 +6,12 @@ You can use them after installing the MP3::Tag module. Look
 at the README.txt in the main directory to see, how to do this.
 
 Then simply run tagged.pl or tagit.pl (see description below), 
-giving filename(s) on the command line.
+giving filename(s) on the command line. mp3info.pl expects the
+filename(s) on standard input <STDIN>.
 
-To run it you need Perl installed, at least 5.x I think. I wrote
-this on Redhat Linux with Perl 5.6.0, but I think, it should run
-with other versions too.
+To run the examples you need Perl installed, at least 5.x I think. 
+I wrote this on Redhat/Debian Linux with Perl 5.6.0, but I think, 
+it should run with other versions too.
 I didn't test it with windows. If you try to run it with windows,
 please send me a short message, either if you had success or not. 
 
@@ -28,6 +29,17 @@ prints them to the console.
 Later tagged.pl should be a program to change tags interactivly, to
 check them for consistency (is there different information in ID3v1
 and ID3v2 tag and/or the filename?), and so on...
+
+
+mp3info.pl
+##########
+
+mp3info demonstrates how easy it can be to extract some main
+fields from a mp3-file with the new autoinfo() function.
+
+It expects its input (filenames) on STDIN, so call it like
+
+ls *.mp3 | /path/to/mp3info.pl
 
 
 tagit.pl
@@ -83,3 +95,5 @@ you can extract the header and sent it to me, so that I can
 check it (NEVER send a complete mp3 file!).
 Because this is an alpha release, you have to realise, that some
 frame/tags are not supported yet.
+
+

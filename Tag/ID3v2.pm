@@ -5,9 +5,9 @@ use MP3::Tag::ID3v1;
 use Compress::Zlib;
 use File::Basename;
 
-use vars qw /%format %long_names $VERSION/;
+use vars qw /%format %long_names %res_inp $VERSION/;
 
-$VERSION="0.25";
+$VERSION="0.30";
 
 =pod
 
@@ -28,9 +28,9 @@ C<$tag> is undef when no tag is found in the C<$mp3obj>.
 
 * Reading a tag
 
-  @frameIDs = $id3v2->getFrameIDS;
+  $frameIDs_hash = $id3v2->getFrameIDS;
 
-  foreach my $frame (@frameIDs) {
+  foreach my $frame (keys %$frameIDs_hash) {
     my ($info, $name) = $id3v2->getFrame($frame);
     if (ref $info) {
       print "$name ($frame):\n";
@@ -70,25 +70,26 @@ Thomas Geffert, thg@users.sourceforge.net
 
   $tag = new($mp3obj);
 
-C<new()> needs as parameter a mp3obj, as created by C<MP3::Tag> (see documentation
-of MP3::Tag).
-C<new> tries to find a ID3v2 tag in the mp3obj. If it does not find a tag it returns undef.
-Otherwise it reads the tag header, as well an extended header, if available. It reads the
-rest of the tag in a buffer, does unsynchronizing if neccessary, and returns a ID3v2-object.
-At this moment only ID3v2.3 is supported. Any extended header with CRC data is ignored, so
-not CRC check is done at the moment.
-The ID3v2-object can then be used to extract information from the tag.  
+C<new()> needs as parameter a mp3obj, as created by C<MP3::Tag> (see
+documentation of MP3::Tag).  
+C<new> tries to find a ID3v2 tag in the mp3obj. If it does not find a
+tag it returns undef.  Otherwise it reads the tag header, as well an
+extended header, if available. It reads the rest of the tag in a
+buffer, does unsynchronizing if neccessary, and returns a
+ID3v2-object.  At this moment only ID3v2.3 is supported. Any extended
+header with CRC data is ignored, so not CRC check is done at the
+moment.  The ID3v2-object can then be used to extract information from
+the tag.
 
 =cut
-  
+
 sub new {
-  my $class = shift;
-  my $mp3obj = shift;
-  my $create = shift;
+  my ($class, $mp3obj, $create) = @_;
   my $self={mp3=>$mp3obj};
-  my $header=0; my @size;
+  my $header=0;
+  my @size;
   bless $self, $class;
-  
+
   $mp3obj->seek(0,0);
   $mp3obj->read(\$header, 10);
   $self->{frame_start}=0;
@@ -112,14 +113,16 @@ sub new {
 	} 
       }
     }
+    $mp3obj->close;
     return $self;
   } else {
+    $mp3obj->close;
     if (defined $create && $create) {
       $self->{tag_data}='';
       $self->{tagsize} = -10;
       $self->{data_size} = 0;
       return $self;
-    } 
+    }
   }
   return undef;
 }
@@ -189,7 +192,6 @@ sub getFrameIDs {
 	  $ID++;
 	}
       }
-      printf ("%s @ %s for %s (%x)\n", $ID, $pos, $size, $flags) if 1==0;
       $self->{frames}->{$ID} = {start=>$pos+10, size=>$size, flags=>$flags};
       $pos += $size+10;
     } else { # Padding reached, cut tag data here
@@ -203,8 +205,8 @@ sub getFrameIDs {
   my %return;
   foreach (keys %{$self->{frames}}) {
     $return{$_}=$long_names{substr($_,0,4)};
-  } 
-  return \%return; 
+  }
+  return \%return;
 }
 
 =pod
@@ -254,7 +256,7 @@ some other explanations of the returned data structure.
 sub getFrame {
   my ($self, $fname, $raw)=@_;
   $self->getFrameIDs() unless exists $self->{frameIDs};
-  return undef unless exists $self->{frames}->{$fname};
+  return "undef" unless exists $self->{frames}->{$fname};
   my $frame=$self->{frames}->{$fname};
   my $frame_flags = check_flags($frame->{flags},$fname); 
   $fname = substr ($fname, 0 ,4);
@@ -491,6 +493,7 @@ sub add_frame {
     my $d = shift @data;
     if ($fs->{len}>0) {
       $d = substr $d, 0, $fs->{len};
+      $d .= " " x ($fs->{len}-length($d)) if length($d) < $fs->{len};
     }elsif ($fs->{len}==0) {
       $d .= chr(0);
     }
@@ -514,8 +517,8 @@ sub add_frame {
       $fname++;
     }
   }
-  printf ("%s @ %s for %s (%x)\n", $fname, $pos, length($datastring), $flags) if 1==0;
-  $self->{frames}->{$fname} = {start=>$pos+10, size=>length($datastring), flags=>$flags};
+  $self->{frames}->{$fname} = {start=>$pos+10, size=>length($datastring),
+			       flags=>$flags};
 
   return $fname;
 }
@@ -551,7 +554,7 @@ sub change_frame {
 Remove an existing frame. $fname is the short name of a frame,
 eg as returned by C<getFrameIDs>.
 
-=cut 
+=cut
 
 sub remove_frame {
   my ($self, $fname) = @_;
@@ -594,30 +597,106 @@ sub supported_frames {
 
 =item what_data()
 
-  $data = $id3v2->what_data($fname);
+  ($data, $res_inp) = $id3v2->what_data($fname);
 
 Returns an array reference with the needed data fields for a
 given frame.
 At this moment only the internal field names are returned,
 without any additional information about the data format of
 this field. Names beginning with an underscore (normally '_data')
-can contain binary data. 
+can contain binary data.
 
-This will change hopefully later on...
+$resp_inp is a reference to an array, which contains information about
+a restriction for the content of the data field ( coresspodending to
+the same array field in the @$data array).
+If the entry is undef, no restriction exists. Otherwise it is a hash.
+The keys of the hash are the allowed input, the correspodending value
+is the value which should stored later in that field. If the value
+is undef then the key itself is valid for saving.
+If the hash contains an entry with "_FREE", the hash contains
+only suggestions for the input, but other input is also allowed.
+
+Example for picture types of the APIC frame:
+
+C<  {"Other" => "\x00",
+   "32x32 pixels 'file icon' (PNG only)" => "\x01",
+   "Other file icon" => "\x02",
+   ...}>
 
 =cut
 
 sub what_data{
-  my $self=shift;
-  my $format = getformat(shift, "quiet");
+  my ($self, $fname)=@_;
+  $fname = substr $fname, 0, 4;
+  my $reswanted = wantarray;
+  my $format = getformat($fname, "quiet");
   return unless defined $format;
-  my @data;
+  my (@data, %res);
 
   foreach (@$format) {
     push @data, $_->{name} unless $_->{name} eq "_encoding";
+    next unless $reswanted;
+    my $key=$fname . $_->{name};
+    if (exists($res_inp{$key})) {
+      if ($res_inp{$key} =~ /CODE/) {
+	$res{$_->{name}}= $res_inp{$key}->(1,1);
+      } else {
+	$res{$_->{name}}= $res_inp{$key};
+      }
+    }
   }
-
+  if ($reswanted) {
+    return (\@data, \%res);
+  }
   return \@data;
+}
+
+=pod
+
+=item song()
+
+Returns the song title (TIT2) from the tag.
+
+=cut
+
+sub song {
+  return getFrame(shift, "TIT2");
+}
+
+=pod
+
+=item track()
+
+Returns the track number (TRCK) from the tag.
+
+=cut
+
+sub track {
+  return getFrame(shift, "TRCK");
+}
+
+=pod
+
+=item artist()
+
+Returns the artist name (TPE1 (or TPE2 if TPE1 doesn't exist)) from the tag.
+
+=cut
+
+sub artist {
+  return getFrame(shift, "TPE1") || getFrame("TPE2");
+}
+
+=pod
+
+=item album()
+
+Returns the album name (TALB) form the tag.
+
+=cut
+
+sub album {
+  return getFrame(shift, "TALB");
 }
 
 ################## 
@@ -844,6 +923,12 @@ sub APIC {
 		  "During performance", "Movie/video screen capture",
 		  "A bright coloured fish", "Illustration", "Band/artist logotype",
 		  "Publisher/Studio logotype");
+  if (defined shift) { # called by what_data
+    my $c=0;
+    my %ret = map {$_, chr($c++)} @pictypes;
+    return \%ret;
+  }
+  # called by extract_data
   return "" if $index > $#pictypes;
   return $pictypes[$index];
 }
@@ -855,12 +940,26 @@ sub COMR {
 		    "Stream over the Internet","As note sheets",
 		    "As note sheets in a book with other sheets",
 		    "Music on other media","Non-musical merchandise");
+  if (defined shift) {
+    my $c=0;
+    my %ret = map {$_, chr($c++)} @receivedas;
+    return \%ret;
+  }
   return $number if ($number>8);
   return $receivedas[$number];
 }
 
 sub TCON {
   my $data = shift;
+  if (defined shift) { # called by what_data
+    my $c=0;
+    my %ret = map {$_, "(".$c++.")"} @{MP3::Tag::ID3v1::genres()};
+    $ret{"_FREE"}=1;
+    $ret{Remix}='(RX)';
+    $ret{Cover}="(CR)";
+    return \%ret;
+  }
+  # called by extract_data
   if ($data =~ /\((\d+)\)/) {
     $data =~ s/\((\d+)\)/MP3::Tag::ID3v1::genres($1)/e;
   }
@@ -869,10 +968,24 @@ sub TCON {
 
 sub TFLT {
   my $text = shift;
+  if (defined shift) {# called by what_data
+    my %ret=("MPEG Audio"=>"MPG",
+	     "MPEG Audio MPEG 1/2 layer I"=>"MPG /1",
+	     "MPEG Audio MPEG 1/2 layer II"=>"MPG /2",
+	     "MPEG Audio MPEG 1/2 layer III"=>"MPG /3",
+	     "MPEG Audio MPEG 2.5"=>"MPG /2.5",
+	     "Transform-domain Weighted Interleave Vector Quantization"=>"VQF",  
+	     "Pulse Code Modulated Audio"=>"PCM",
+	     "Advanced audio compression"=>"AAC",
+	     "_Free"=>1,
+	    );
+    return \%ret;
+  }
+  #called by extract_data
   return "" if $text eq "";
   $text =~ s/MPG/MPEG Audio/;  
   $text =~ s/VQF/Transform-domain Weighted Interleave Vector Quantization/;  
-  $text =~ s/PCM/Pulse Code Modulated audio/;
+  $text =~ s/PCM/Pulse Code Modulated Audio/;
   $text =~ s/AAC/Advanced audio compression/;
   unless ($text =~ s!/1!MPEG 1/2 layer I!) {
     unless ($text =~ s!/2!MPEG 1/2 layer II!) {
@@ -885,6 +998,7 @@ sub TFLT {
 }
 
 sub TMED {
+  #called by extract_data
   my $text = shift;
   return "" if $text eq "";
   if ($text =~ /(?<!\() \( ([\w\/]*) \) /x) {
@@ -920,7 +1034,6 @@ sub TMED {
       $found =~ s!/!, !;
     }
     elsif ($found =~ s!TEL!Telephone!) {
-    TEL    Telephone
       $found =~ s!/I!, ISDN!;
     }
     elsif ($found =~ s!REE!Reel! ||
@@ -1085,6 +1198,12 @@ BEGIN {
 		WPUB => "Publishers official webpage",
 		WXXX => "User defined URL link frame", 
 	       );
+
+  %res_inp=( "APICPicture Type" => \&APIC,
+	     "TCONText" => \&TCON,
+	     "TFLTText" => \&TFLT,
+	     "COMRReceived as" => \&COMR,
+	   );
 }
 
 =pod
