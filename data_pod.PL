@@ -1,5 +1,7 @@
 #!/usr/bin/perl -w
 
+## data_pod.PL creates the documentation File MP3::Tag::ID3v2-Data
+
 use MP3::Tag::ID3v2;
 
 $filename=shift || "./Tag/ID3v2-Data.pod";
@@ -7,45 +9,59 @@ $filename=shift || "./Tag/ID3v2-Data.pod";
 open(POD, ">$filename");
 $std = select(POD);
 
+@frames = keys %{MP3::Tag::ID3v2::supported_frames()};
+
 print <<"INTRO";
 
 =head1 NAME 
 
-MP3::Tag::ID3v2-Data - GetFrame() Data Format
+MP3::Tag::ID3v2-Data - get_frame() data format and supported frames
+
+=head1 SYNOPSIS
+
+  \$mp3 = MP3::Tag->new(\$filename);
+  \$mp3->get_tags();
+  \$id3v2 = \$mp3->{ID3v2} if exists \$mp3->{id3v2};
+
+  (\$info, \$long) = \$id3v2->get_frame(\$id);    # or
+
+  (\$info, \$long) = \$id3v2->get_frame(\$id, 'raw');
+
 
 =head1 DESCRIPTION 
 
-This document describes how to use the results of the GetFrame function of 
+This document describes how to use the results of the get_frame function of 
 MP3::Tag::ID3v2, thus the data format of frames retrieved with 
-MP3::Tag::ID3v2::GetFrame().
+MP3::Tag::ID3v2::get_frame().
 
-=head2 Calling GetFrame()
+It contains also a list of all supported ID3v2-Frames.
 
-You have to call GetFrame() like this: 
+=over 4
 
-(\$info, \$long) = GetFrame(\$id);    # or
+=head2 get_frame()
 
-(\$info, \$long) = GetFrame(\$id, 'raw');
+ (\$info, \$long) = \$id3v2->get_frame(\$id);    # or
+ 
+ (\$info, \$long) = \$id3v2->get_frame(\$id, 'raw');
 
-\$id has to be a name of a frame like "APIC". The names of all frames found
-in a tag can be retrieved with the L<GetFrameIDs()|MP3::Tag::ID3v2> function.
+ \$id has to be a name of a frame like "APIC". See also L<get_frame()|MP3::Tag::ID3v2>.
+
+ The names of all frames found in a tag can be retrieved with the L<get_frame_ids()|MP3::Tag::ID3v2> function.
 
 =head2 Using the returned data
 
-In the ID3v2.3 specifications $#frames frames are defined, which can contain very
-different information. That means also that GetFrame returns the information
-found in a frame in different ways.
-
-=over 4
+ In the ID3v2.3 specifications $#frames frames are defined, which can contain very
+different information. That means that get_frame returns the information
+of different frames also in different ways.
 
 =item Simple Frames
 
 A lot of the tags contain only a text string and encoding information. If
-you call (\$info, \$long) = GetFrame(\$id) for such a frame, \$info will contain
+you call (\$info, \$long) = \$id3v2->get_frame(\$id) for such a frame, \$info will contain
 the text string and \$long will contain the english name of the frame.
  
 Example:
-  getFrame("TIT2");     # returns
+  get_frame("TIT2");     # returns
 
   ("Birdhouse In Your Soul", "Title/songname/content description")
 
@@ -57,7 +73,7 @@ frame. The key of a hash entry contains the name of this part, the according
 value contains the information itself.
  
 Example:
-  getFrame("APIC");     # returns
+  get_frame("APIC");     # returns
   
   ( { "Description" => "Flood", 
       "MIME Type" => "/image/jpeg", 
@@ -75,7 +91,7 @@ data field of the frame is returned, without any modifications. This means
 that the returned data will be almost binary data.
 
 Example:
-  getFrame("TIT2", 'raw');    # returns
+  get_frame("TIT2", 'raw');    # returns
 
   ("\\x00Birdhouse In Your Soul", "Title/songname/content description")
 
@@ -103,7 +119,7 @@ foreach (@frames) {
 
 print "\n\n=head2 List of Simple Frames\n\nFollowing Frames are supported 
 and return a single string (text). In the List you can find the frame IDs 
-and the long names of the frames as returned by GetFrame():\n\n=over 4\n\n";
+and the long names of the frames as returned by \$id3v2->get_frame():\n\n=over 4\n\n";
 foreach (sort @text) {
   $long = $MP3::Tag::ID3v2::long_names{$_};
   print "\n=item $_ : $long\n";

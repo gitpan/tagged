@@ -21,7 +21,7 @@ ok(1,"MP3::Tag initialized");
 
 #test - getting the tags
 $mp3 = MP3::Tag->new("test.mp3");
-$mp3->getTags;
+$mp3->get_tags;
 
 $v1 = $mp3->{ID3v1};
 ok($v1,"Detecting ID3v1");
@@ -33,19 +33,19 @@ ok($v2,"Detecting ID3v2");
 ok(($v1 && ($v1->song eq "Song") && ($v1->track == 10)),"Reading ID3v1");
 
 #test - reading ID3v2
-ok($v2 && $v2->getFrame("COMM")->{short} eq "Test!","Reading ID3v2");
+ok($v2 && $v2->get_frame("COMM")->{short} eq "Test!","Reading ID3v2");
 
 $mp3 = MP3::Tag->new("test2.mp3");
-$mp3->newTag("ID3v1");
+$mp3->new_tag("ID3v1");
 $v1 = $mp3->{ID3v1};
-$mp3->newTag("ID3v2");
+$mp3->new_tag("ID3v2");
 $v2 = $mp3->{ID3v2};
 
 #test - creating/changing/writing ID3v1
 ok($v1 && join("",$v1->all("New","a","a",2000,"c",10,"Ska")), "Creating new ID3v1");
-ok($v1 && $v1->writeTag,"Writing ID3v1");
+ok($v1 && $v1->write_tag,"Writing ID3v1");
 ok($v1 && $v1->artist("Artist"), "Changing ID3v1");
-ok($v1 && $v1->writeTag,"Writing ID3v1");
+ok($v1 && $v1->write_tag,"Writing ID3v1");
 
 #test - creating/changing/writing ID3v2
 ok($v2 && $v2->add_frame("TLAN","ENG"),"Creating new ID3v2");
@@ -54,7 +54,7 @@ ok($v2 && $v2->add_frame("TLAN","GER"),"Changing ID3v2");
 ok($v2 && $v2->write_tag,"Writing ID3v2");
 
 $mp3 = MP3::Tag->new("test2.mp3");
-$mp3->getTags;
+$mp3->get_tags;
 $v1 = $mp3->{ID3v1};
 $v2 = $mp3->{ID3v2};
 
@@ -62,7 +62,7 @@ $v2 = $mp3->{ID3v2};
 ok($v1 && $v1->song eq "New" && $v1->artist eq "Artist","Checking new ID3v1");
 
 #test 11 - reading new ID3v2
-ok($v2 && $v2->getFrame("TLAN") eq "ENG" && $v2->getFrame("TLAN01") eq "GER","Checking new ID3v2");
+ok($v2 && $v2->get_frame("TLAN") eq "ENG" && $v2->get_frame("TLAN01") eq "GER","Checking new ID3v2");
 
 #back to original tag
 open (FH, ">test2.mp3");

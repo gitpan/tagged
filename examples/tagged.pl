@@ -14,7 +14,7 @@ for my $filename (@ARGV) {
   print " --  $filename:\n";
 
   $mp3 = MP3::Tag->new($filename);
-  $mp3->getTags;
+  $mp3->get_tags;
   $count++;
   if (exists $mp3->{ID3v1}) {
     $v1++;
@@ -27,7 +27,7 @@ for my $filename (@ARGV) {
     print "  Genre: " .$mp3->{ID3v1}->genre . "\n";
     print "  Track: " .$mp3->{ID3v1}->track . "\n";
     if (0==1) { # write a test tag
-      $mp3->newTag("ID3v1") unless exists $mp3->{ID3v1};
+      $mp3->new_tag("ID3v1") unless exists $mp3->{ID3v1};
       $mp3->{ID3v1}->comment("This is only a Test Tag");
       $mp3->{ID3v1}->song("testing");
       $mp3->{ID3v1}->genre("Blues");
@@ -37,15 +37,15 @@ for my $filename (@ARGV) {
       $mp3->{ID3v1}->track("5");
       # or at once
       # $mp3->{ID3v1}->all("song title","artist","album","1900","comment",10,"Ska");
-      $mp3->{ID3v1}->writeTag;
+      $mp3->{ID3v1}->write_tag;
     }
   }
   if (exists $mp3->{ID3v2}) {
     $v2++;
     print " **  found ID3v2 - TAG\n";
-    my $frames = $mp3->{ID3v2}->getFrameIDs();
+    my $frames = $mp3->{ID3v2}->get_frame_ids();
     foreach my $frame (keys %$frames) {
-       my ($info, $name) = $mp3->{ID3v2}->getFrame($frame);
+       my ($info, $name) = $mp3->{ID3v2}->get_frame($frame);
        next unless defined $info;
        if (ref $info) {
 	print "$frame $name:\n";
@@ -64,7 +64,7 @@ for my $filename (@ARGV) {
       }
     }
     if (0==1) { # add a id3v2 comment
-      $mp3->newTag("ID3v2") unless exists $mp3->{ID3v2};
+      $mp3->new_tag("ID3v2") unless exists $mp3->{ID3v2};
       $mp3->{ID3v2}->add_frame("COMM","ENG","Test","This is an example, how to add an ID3v2 frame");
       $mp3->{ID3v2}->write_tag;
     }

@@ -11,7 +11,7 @@ use MP3::Tag;
 while (<STDIN>) {
 	chomp;
 	if (my $mp3=MP3::Tag->new($_)) {
-		print "$_ (Tags: ", join(", ",$mp3->getTags),")\n";
+		print "$_ (Tags: ", join(", ",$mp3->get_tags),")\n";
 		@info=$mp3->autoinfo;
 		print "* Song: $info[0]\n";
 		print "* Track: $info[1]\n";

@@ -6,7 +6,7 @@ tags of mp3-files. (Other tags hopefully to follow).
 
 To install the MP3::TAG module you simply do:
 
-perl Makefile.pl
+perl Makefile.PL
 make
 make test
 make install   (as root)

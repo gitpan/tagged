@@ -1,5 +1,6 @@
 #!/usr/bin/perl -w
 
+use File::Copy;
 use MP3::Tag;
 
 # some settings for getting command-line options
@@ -65,16 +66,16 @@ for my $filename (@ARGV) {
     print "Skipping $filename ...\n";
     next;
   }
-  $mp3->getTags;
+  $mp3->get_tags;
 
   unless (exists $mp3->{ID3v1}) {
     print "No ID3v1-Tag found\n" if exists $opt{show} || exists $opt{v};
     next if exists $opt{skipwithoutv1};
-    $mp3->newTag("ID3v1");
+    $mp3->new_tag("ID3v1");
   }
 
   # deletet tag if wanted (option: --removetag)
-  $mp3->{ID3v1}->removeTag if $opt{removetag};
+  $mp3->{ID3v1}->remove_tag if $opt{removetag};
 
   # set tag if this is wanted
   # option: --song, --artist, --album, --comment, --year, --genre, --track
@@ -92,7 +93,7 @@ for my $filename (@ARGV) {
       # do nothing, but show new tag
       $opt{show} = 1;
     } else {
-      if ($mp3->{ID3v1}->writeTag()) {
+      if ($mp3->{ID3v1}->write_tag()) {
 	print "Tag written\n" unless exists $opt{q};
       } else {
 	print "Couldn't write tag\n" unless exists $opt{q};
@@ -117,7 +118,7 @@ for my $filename (@ARGV) {
   # with --format the format of the new filename can be set (see formatstr below)
   if (exists $opt{setfilename}) {
     unless (exists $opt{test}) { # check if there really exists a tag
-      $mp3->getTags;
+      $mp3->get_tags;
       unless (exists $mp3->{ID3v1}) {
 	print "No ID3v1 Tag exists. Can't change $filename\n";
 	exit -1;
@@ -140,7 +141,7 @@ for my $filename (@ARGV) {
 
     if ( !exists $opt{test} && $new && checkpath($new)) {
       $mp3->close;
-      movefile($filename, $new);
+      move($filename, $new);
     } else {
       print "Cannot set filename from tag: $new is invalid\n" unless exists $opt{q} || exists $opt{test} ; 
     }
@@ -169,22 +170,6 @@ sub checkpath {
     $tree .=$1."/";
   }
   return $treeok;
-}
-
-# rename/move file old to new
-# first tries rename
-# if this fails it calls the system mv command
-sub movefile {
-  my ($old, $new) = @_;
-  if (rename $old, $new) {
-    print "Renamed $old to $new\n" unless exists $opt{q};
-  } else {
-    if (system("mv",$filename,$new)==0) {
-      print "Moved $filename to $new\n" unless exists $opt{q};
-    } else {
-      print "Could not rename/move $old to $new\n" unless exists $opt{q};
-    }
-  } 
 }
 
 # prints a question and waits for a [y]es or [n]o

@@ -1,5 +1,38 @@
-Revision history for Perl modules MP3::Tag, MP3::Tag::ID3v1, MP3::Tag::ID3v2
+Revision history for Perl modules MP3::Tag, MP3::Tag::ID3v1, MP3::Tag::ID3v2, MP3::Tag::File,
              and for Perl program tk-tag
+
+Release Name: 0.40
+==================
+Changes:
+
+* Updated documentation for MP3::Tag, MP3::Tag::ID3v1, MP3::Tag::ID3v2 and MP3::Tag::ID3v2-Data 
+
+* Renamed some functions. The old names will still work, but try to use the new names.
+  The following names were changed: 
+
+  - MP3::Tag::getTags() to MP3::Tag::get_tags() 
+  - MP3::Tag::newTag() to MP3::Tag::new_tag() 
+  - MP3::Tag::ID3v1::removeTag() to MP3::Tag::ID3v1::remove_tag() 
+  - MP3::Tag::ID3v1::writeTag() to MP3::Tag::ID3v1::write_tag() 
+  - MP3::Tag::ID2v2::getFrameIDs() to MP3::Tag::ID3v2::get_frame_ids() 
+  - MP3::Tag::ID2v2::getFrame() to MP3::Tag::ID3v2::get_frame() 
+  
+* Bugfix for ID3v2.pm:
+  - getFrame() returned "undef" as a string instead of simple undef
+  - artist() produced an error when TPE1 is missing in TAG
+ 
+* Bugfix for Tag.pm:
+  - DESTROY() checked only if $mp3->obj{filename} exists and not if it is defined before trying to 
+    close it  
+  - autoinfo() returns now a hash ref or an array as noted in the documentation 
+
+* Bugfix for ID3v1.pm:
+  - genres() expected an id3v1-object as first parameter and a genre
+    only as second parameter. Now the object can be omitted as in a call like
+    MP3::Tag::ID3v1->genres($genre) used by Tag.pm and ID3v2.pm
+
+* bugfix for File.pm:
+  - Filenames may contain surrounding whitespaces now
 
 Release Name: 0.30
 ==================
